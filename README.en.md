@@ -6,6 +6,8 @@
 
 Drop files into four urgency zones and plan Today or the Week. **Keep the planner above the desktop and below other apps, with separate background and text transparency.** No account. Works offline. No ads or telemetry.
 
+> **[ Fork notice ]** This repository is a fork of [asoming/deskplan](https://github.com/asoming/deskplan). On top of upstream it adds: a **Pomodoro timer** (floating window / mini mode / 1–180 min custom countdown), a **statistics dashboard** (habit tracker heatmap / completion trend / on-time rate), **dual-axis calendar with completion history**, **strikethrough done-history in Today and Week**, **every-N-days repeats** and **five colour themes**. See the Pomodoro / Statistics / dual-axis calendar / colour themes rows in the feature table below. Installers for the base app remain on the [upstream releases page](https://github.com/asoming/deskplan/releases/latest); this fork currently runs from source (see Development).
+
 ## Download and try it
 
 | System | Download v1.0.11 |
@@ -33,19 +35,23 @@ Uses sample tasks only. [Open the website with playback controls](https://asomin
 | Feature | What it does |
 | --- | --- |
 | Four urgency zones | Now, Soon, Planned and Later use distinct colors. Soon tasks with ≤48 hours remaining automatically appear in Now |
-| Today and Week | Pick Today’s top three. Drag tasks across the week and use time estimates to spot busy days. Planned dates stay separate from deadlines |
+| Today and Week | Pick Today's top three. Drag tasks across the week and use time estimates to spot busy days. Planned dates stay separate from deadlines; tasks completed that day stay as strikethrough records you can collapse |
+| Pomodoro | Timer panel, detachable to a **floating window** or shrinkable to mini mode. Supports a **1–180 minute custom countdown** (e.g. 4 minutes of squats); finishing still counts toward your pomodoro tally and starts the break automatically. The countdown survives restarts |
+| Statistics | **Habit-tracker heatmap** (last 12 weeks; green = done, red = missed; supports daily / every-N-days repeats), 14-day completion trend, 30-day on-time rate, overdue and inbox backlog cards, CSV export |
+| Dual-axis calendar | Toggle between the **planned** and **deadline** view. Open any day to see planned, due and **completed** items. Drop a task onto a day and choose to schedule it there or move its deadline |
+| Colour themes | Five palettes: Evergreen (default) / Warm paper / Graphite / Sea mist / Dusk violet, each with matching light and dark variants kept distinct from your wallpaper |
 | Files and folders | Drop files, folders or project workspaces to create or attach tasks. Originals are never moved or uploaded |
 | Quick capture | `Ctrl / ⌘ + Shift + Space` opens a small input; Enter saves to Inbox |
 | Quiet presence | Corner docking, fixed position, sidebar controls on hover and mini mode. Tray-only presence; the panel appears at login |
-| Local reliability | Checklists, recurring tasks, optional reminders, undo, trash, rolling backups and JSON / CSV export |
+| Local reliability | Checklists, recurring tasks (daily / weekdays / weekly / monthly / **every N days**), optional reminders, undo, trash, rolling backups and JSON / CSV export (CSV includes completed-at) |
 
 The four zones are priority tiers, not a two-axis importance/urgency matrix. For both text and background, **0% transparency is opaque; 100% is fully transparent**.
 
 ## Get started
 
-1. Install and open the app. Click `+` or drop a file / folder into a task zone.
-2. Add a planned date, deadline or checklist. Switch between Today, Week and the four zones.
-3. Use Settings for transparency, language and reminders. Right-click the panel or tray to fix its position, open settings or quit.
+1. Install and open the app. Click `+` or drop a file / folder into a task zone. When running from source on Windows, double-click `启动.bat` after installing dependencies.
+2. Add a planned date, deadline or checklist. Switch between Today, Week and the four zones; repeats support every-N-days.
+3. Use Settings for transparency, language, colour theme and reminders. Right-click the panel or tray to fix its position, open settings or quit.
 
 ## Three everyday workflows
 
@@ -53,6 +59,8 @@ The four zones are priority tiers, not a two-axis importance/urgency matrix. For
 | --- | --- |
 | Track a project delivery | Drop a project folder or `.code-workspace` into an urgency zone, set a deadline and split the work into preparation, execution and review with a checklist. Original files stay where they are |
 | Focus on three things today | Pick your top three in Today and estimate their duration. Switch to mini mode while working to see the current task and the next two |
+| Short tasks on a Pomodoro rhythm | For a 4-minute exercise like squats, enter 4 and press Countdown in the Pomodoro panel; it still counts toward your tally and the break starts automatically. The floating window accepts the duration too |
+| Keep a daily exercise habit | Set Repeat on daily / every-N-days exercises, then review the habit heatmap, streak and on-schedule rate in Statistics |
 | Keep your week manageable | Capture ideas in Inbox, then drag them onto suitable days in Week. Adjust the plan using time estimates; changing the planned date does not change the deadline |
 
 **Data and updates:** tasks stay on your computer; attachment backups contain paths only. Existing data locations are retained. Versions 1.0.10 and earlier need one manual installation after the repository rename; install over the existing app without uninstalling. New versions can check and download updates in Settings; you choose when to install and restart.
@@ -77,6 +85,8 @@ npm run test:planner
 npm run test:release
 npm run test:language
 ```
+
+On Windows, run from source: `npm ci`, then double-click `启动.bat` (which calls `scripts/dev-start.cjs`), or use `npm start`. Personal data lives in `data/` (already in `.gitignore`) and never enters version control.
 
 [Testing and packaging](TESTING.md) · [Release process](docs/RELEASING.md) · [Website and demo maintenance](docs/WEBSITE.md). Native tests must use isolated data and displays, never personal tasks.
 
