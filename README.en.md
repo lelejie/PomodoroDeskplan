@@ -6,19 +6,58 @@
 
 Drop files into four urgency zones and plan Today or the Week. **Keep the planner above the desktop and below other apps, with separate background and text transparency.** No account. Works offline. No ads or telemetry.
 
-> **[ Fork notice ]** This repository is a fork of [asoming/deskplan](https://github.com/asoming/deskplan). On top of upstream it adds: a **Pomodoro timer** (floating window / mini mode / 1–180 min custom countdown), a **statistics dashboard** (habit tracker heatmap / completion trend / on-time rate), **dual-axis calendar with completion history**, **strikethrough done-history in Today and Week**, **every-N-days repeats** and **five colour themes**. See the Pomodoro / Statistics / dual-axis calendar / colour themes rows in the feature table below. Installers for the base app remain on the [upstream releases page](https://github.com/asoming/deskplan/releases/latest); this fork currently runs from source (see Development).
+> **[ Fork notice ]** This repository is a fork of [asoming/deskplan](https://github.com/asoming/deskplan). On top of upstream it adds: a **Pomodoro timer** (floating window / mini mode / 1–180 min custom countdown), a **statistics dashboard** (habit tracker heatmap / completion trend / on-time rate), **dual-axis calendar with completion history**, **strikethrough done-history in Today and Week**, **every-N-days repeats** and **five colour themes**. See the Pomodoro / Statistics / dual-axis calendar / colour themes rows in the feature table below. Installers for the base app remain on the [upstream releases page](https://github.com/asoming/deskplan/releases/latest); this fork runs from source — see "Deploy from source" below.
 
-## Download and try it
+## Deploy from source (how this fork is used)
 
-| System | Download v1.0.11 |
+This fork does not ship packaged installers; run it from source.
+
+**1. Prerequisites**
+
+| System | Required |
 | --- | --- |
-| Windows x64 | [EXE](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-windows-x64-setup.exe) |
-| macOS Apple Silicon | [DMG](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-mac-arm64.dmg) |
-| macOS Intel | [DMG](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-mac-x64.dmg) |
-| Debian / Ubuntu x64 | [DEB](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-linux-x64.deb) |
-| Linux x64 | [tar.gz](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-linux-x64.tar.gz) |
+| All | Node.js ≥ 22.12, npm, Git |
+| Windows | [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the "Desktop development with C++" workload, plus Python 3 — needed once to compile the native window layer during dependency install |
+| Linux | C++ compiler, make, Python 3, libx11-dev |
+| macOS | Xcode Command Line Tools (`xcode-select --install`) |
 
-[All packages, SHA256 checksums and test reports](https://github.com/asoming/deskplan/releases/latest). Windows builds are unsigned; macOS builds are ad-hoc signed and not notarized. First-launch system prompts may appear. See the [installation guide](docs/INSTALL.en.md).
+**2. Get the source** (the fork repository has no `node_modules`; dependencies are installed locally)
+
+```sh
+git clone https://github.com/lelejie/PomodoroDeskplan.git
+cd PomodoroDeskplan
+```
+
+Alternatively use **Code → Download ZIP** on GitHub (the extracted folder will be named `PomodoroDeskplan-main`).
+
+**3. Install dependencies**
+
+```sh
+npm ci
+```
+
+This downloads Electron 44 and compiles the native desktop window layer (`src/native/`). **Network tip (mainland China):** the Electron binary is fetched from GitHub; if the download times out or is reset, point it at a mirror and retry:
+
+```powershell
+# PowerShell (Windows)
+$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+npm ci
+```
+
+```sh
+# bash / zsh (macOS, Linux)
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+npm ci
+```
+
+**4. Run**
+
+- Windows: double-click **`启动.bat`** in the project folder (equivalent to `npm start`);
+- macOS / Linux: `npm start`.
+
+On first launch a `data/` folder is created next to the source to store your tasks; it is listed in `.gitignore`, so updating the code or re-cloning never touches your data.
+
+**Want installers?** The upstream [releases page](https://github.com/asoming/deskplan/releases/latest) offers official packages for all three platforms (without this fork's additions); you can also build your own with `npm run package` (NSIS on Windows, see [TESTING.md](TESTING.md)).
 
 ![Actual DeskPlan app with sample tasks](site/assets/planner-en.png)
 

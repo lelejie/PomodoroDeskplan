@@ -6,19 +6,58 @@
 
 把文件拖进四象限，安排今天与本周。**背景和文字透明度独立可调，留在桌面上，低于其他应用。** 无需账号，离线可用，没有广告与遥测。
 
-> **[ Fork 说明 ]** 本仓库是 [asoming/deskplan](https://github.com/asoming/deskplan) 的 Fork，在上游基础上新增了：**番茄钟专注计时**（悬浮小窗 / 迷你模式 / 1–180 分钟自定义倒计时）、**工作统计看板**（习惯打卡热力格 / 完成趋势 / 按时率）、**日历双轴与完成历史**、**今天与本周的划线历史**、**每隔 N 天重复**、**五套主题色**。新增内容见下方功能表中的「番茄钟 / 工作统计 / 日历双轴 / 主题色」等行。基础应用的安装包仍从[上游 Release](https://github.com/asoming/deskplan/releases/latest) 获取；本 Fork 当前以源码方式运行（见「开发」）。
+> **[ Fork 说明 ]** 本仓库是 [asoming/deskplan](https://github.com/asoming/deskplan) 的 Fork，在上游基础上新增了：**番茄钟专注计时**（悬浮小窗 / 迷你模式 / 1–180 分钟自定义倒计时）、**工作统计看板**（习惯打卡热力格 / 完成趋势 / 按时率）、**日历双轴与完成历史**、**今天与本周的划线历史**、**每隔 N 天重复**、**五套主题色**。新增内容见下方功能表中的「番茄钟 / 工作统计 / 日历双轴 / 主题色」等行。基础应用的安装包仍从[上游 Release](https://github.com/asoming/deskplan/releases/latest) 获取；本 Fork 请按下方「从源码部署」运行。
 
-## 下载与体验
+## 从源码部署（本 Fork 的使用方式）
 
-| 系统 | 下载 v1.0.11 |
+本 Fork 没有提供打包安装版，请从源码运行：
+
+**1. 准备环境**
+
+| 系统 | 需要 |
 | --- | --- |
-| Windows x64 | [EXE](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-windows-x64-setup.exe) |
-| macOS Apple Silicon | [DMG](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-mac-arm64.dmg) |
-| macOS Intel | [DMG](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-mac-x64.dmg) |
-| Debian / Ubuntu x64 | [DEB](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-linux-x64.deb) |
-| Linux x64 | [tar.gz](https://github.com/asoming/deskplan/releases/download/v1.0.11/DeskPlan-1.0.11-linux-x64.tar.gz) |
+| 全平台 | Node.js ≥ 22.12、npm、Git |
+| Windows | [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（勾选"使用 C++ 的桌面开发"）与 Python 3（首次安装依赖时编译原生窗口层用） |
+| Linux | C++ 编译器、make、Python 3、libx11-dev |
+| macOS | Xcode Command Line Tools（`xcode-select --install`） |
 
-[全部安装包、SHA256 校验和与测试报告](https://github.com/asoming/deskplan/releases/latest)。Windows 尚未签名，macOS 使用临时签名且未公证；首次打开可能出现系统提示。详见[安装说明](docs/INSTALL.zh-CN.md)。
+**2. 获取源码**（Fork 仓库不含 `node_modules`，需要自己安装依赖）
+
+```sh
+git clone https://github.com/lelejie/PomodoroDeskplan.git
+cd PomodoroDeskplan
+```
+
+也可以在 GitHub 页面点 **Code → Download ZIP** 下载解压（此时是目录名 `PomodoroDeskplan-main`）。
+
+**3. 安装依赖**
+
+```sh
+npm ci
+```
+
+这一步会下载 Electron 44 并编译原生桌面窗口层（`src/native/`）。**国内网络提示**：Electron 二进制从 GitHub 下载，若超时或被重置，先设置镜像再重试：
+
+```powershell
+# PowerShell（Windows）
+$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+npm ci
+```
+
+```sh
+# bash / zsh（macOS、Linux）
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+npm ci
+```
+
+**4. 启动**
+
+- Windows：双击项目目录里的 **`启动.bat`**（等价于 `npm start`）；
+- macOS / Linux：`npm start`。
+
+首次启动会自动在源码目录旁创建 `data/` 文件夹存放你的任务数据；该目录已加入 `.gitignore`，更新代码、重新克隆都不会影响数据。
+
+**需要打包安装版？** 上游 [Release 页面](https://github.com/asoming/deskplan/releases/latest)提供三平台官方安装包（不含本 Fork 新增功能）；也可以自行打包：`npm run package`（Windows 为 NSIS 安装包，详见 [TESTING.md](TESTING.md)）。
 
 ![日序真实应用，使用示例任务](site/assets/planner-zh-CN.png)
 
