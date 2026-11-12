@@ -19,6 +19,11 @@
   let draftChecklist = [];
   const expandedChecklists = new Set();
   let repeatLabels = { daily: tr('每天'), weekdays: tr('工作日'), weekly: tr('每周'), monthly: tr('每月') };
+  const repeatTag = t => t.repeat === 'interval' ? tr`每 ${t.repeatEvery || 2} 天` : repeatLabels[t.repeat];
+  const collapsedDone = new Set();
+  function doneRow(t) {
+    return html`<article class="plan-task task done-task"><div class="task-top"><span class="done-check">${icon('check')}</span><button class="task-title" data-edit="${esc(t.id)}">${esc(t.title)}</button></div><div class="task-meta"><span>✓ ${localTime(t.completedAt).slice(11)}</span>${t.estimatedMinutes ? html`<span>${t.estimatedMinutes} 分钟</span>` : ''}${t.repeat !== 'none' ? `<span class="repeat-tag">↻ ${repeatTag(t)}</span>` : ''}</div></article>`;
+  }
   let editorSession = 0, pendingAttachments = 0;
   let editingId = null, editorInitial = '', draftFiles = [], availability = new Map(), toastTimer, busy = false;
 
@@ -49,8 +54,10 @@
       $('#task-dialog-title').textContent = tr(editingId ? '任务详情' : '新建任务');
       $('#library-title').textContent = tr($('#library-filter').value === 'completed' ? '已完成' : $('#library-filter').value === 'deleted' ? '回收站' : '搜索任务');
       $('#toast').textContent = ''; $('#save-status').textContent = tr('本地保存');
+      window.PomodoroPanel?.refresh();
     }
     now = Date.now(); document.documentElement.dataset.theme = state.settings.theme;
+    document.documentElement.dataset.palette = state.settings.palette || 'ink';
     document.body.classList.toggle('desktop-blend', state.settings.desktopBlend);
     document.body.classList.toggle('quiet-controls', state.settings.quietControls);
     $('#blend-toggle').setAttribute('aria-pressed', String(state.settings.desktopBlend));
@@ -95,12 +102,12 @@
   }
   function taskHTML(t) {
     const auto = t.level === 1 && effectiveLevel(t, now) === 0;
-    return html`<article class="task" data-task="${esc(t.id)}" draggable="true" data-priority="${effectiveLevel(t, now)}" data-heat="${urgency(t, now)}" data-selected="${!!selectedDay && taskDay(t) === selectedDay}"><div class="task-top"><input type="checkbox" data-complete="${esc(t.id)}" aria-label="完成：${esc(t.title)}"><button class="task-title" data-edit="${esc(t.id)}">${esc(t.title)}</button></div>${t.due || t.files.length || t.estimatedMinutes || t.repeat !== 'none' || t.checklist.length ? `<div class="task-meta">${t.estimatedMinutes ? html`<span>${t.estimatedMinutes} 分钟</span>` : ''}${t.repeat !== 'none' ? `<span class="repeat-tag">↻ ${repeatLabels[t.repeat]}</span>` : ''}${t.checklist.length ? `<span>☑ ${t.checklist.filter(i => i.done).length}/${t.checklist.length}</span>` : ''}<span class="due" title="${esc(fullDate(t.due))}">${remainingLabel(t, now, state.settings.language)}</span>${auto ? html('<span class="auto-label">自动移入</span>') : ''}${t.files.length ? `<span class="file-tag">${icon('clip')}<span>${esc(t.files[0].name)}${t.files.length > 1 ? ` +${t.files.length - 1}` : ''}</span></span>` : ''}</div>` : ''}${checklistHTML(t)}<div class="task-tools"><button data-start="${esc(t.id)}" title="设为当前任务">${t.current ? tr('正在做') : tr('开始')}</button>${t.due && remainingHours(t, now) <= 0 ? html`<button data-review="${esc(t.id)}">处理到期</button>` : ''}<button data-today="${esc(t.id)}" title="安排今天做">今天做</button></div></article>`;
+    return html`<article class="task" data-task="${esc(t.id)}" draggable="true" data-priority="${effectiveLevel(t, now)}" data-heat="${urgency(t, now)}" data-selected="${!!selectedDay && taskDay(t) === selectedDay}"><div class="task-top"><input type="checkbox" data-complete="${esc(t.id)}" aria-label="完成：${esc(t.title)}"><button class="task-title" data-edit="${esc(t.id)}">${esc(t.title)}</button></div>${t.due || t.files.length || t.estimatedMinutes || t.repeat !== 'none' || t.checklist.length ? `<div class="task-meta">${t.estimatedMinutes ? html`<span>${t.estimatedMinutes} 分钟</span>` : ''}${t.repeat !== 'none' ? `<span class="repeat-tag">↻ ${repeatTag(t)}</span>` : ''}${t.checklist.length ? `<span>☑ ${t.checklist.filter(i => i.done).length}/${t.checklist.length}</span>` : ''}<span class="due" title="${esc(fullDate(t.due))}">${remainingLabel(t, now, state.settings.language)}</span>${auto ? html('<span class="auto-label">自动移入</span>') : ''}${t.files.length ? `<span class="file-tag">${icon('clip')}<span>${esc(t.files[0].name)}${t.files.length > 1 ? ` +${t.files.length - 1}` : ''}</span></span>` : ''}</div>` : ''}${checklistHTML(t)}<div class="task-tools"><button data-start="${esc(t.id)}" title="设为当前任务">${t.current ? tr('正在做') : tr('开始')}</button>${t.due && remainingHours(t, now) <= 0 ? html`<button data-review="${esc(t.id)}">处理到期</button>` : ''}<button data-today="${esc(t.id)}" title="安排今天做">今天做</button></div></article>`;
   }
   let weekOffset = 0, reviewingId = null;
   function planRow(t, top = false) {
     const today = dateKey(new Date(now));
-    return html`<article class="plan-task task" data-task="${esc(t.id)}" draggable="true" data-priority="${effectiveLevel(t, now)}" data-heat="${urgency(t, now)}"><div class="task-top"><input type="checkbox" data-complete="${esc(t.id)}" aria-label="完成：${esc(t.title)}"><button class="task-title" data-edit="${esc(t.id)}">${esc(t.title)}</button>${!t.inbox ? `<button class="focus-star ${top ? 'chosen' : ''}" data-focus="${esc(t.id)}" title="${top ? tr('移出今天最重要的三件事') : tr('加入今天最重要的三件事')}" aria-label="${top ? tr('取消重要') : tr('标为重要')}">${top ? '★' : '☆'}</button>` : ''}</div><div class="task-meta">${t.repeat !== 'none' ? `<span>↻ ${repeatLabels[t.repeat]}</span>` : ''}${t.checklist.length ? `<span>☑ ${t.checklist.filter(i => i.done).length}/${t.checklist.length}</span>` : ''}<span>${t.estimatedMinutes ? tr`${t.estimatedMinutes} 分钟` : tr('未估时')}</span>${t.due ? `<span class="due" title="${esc(fullDate(t.due))}">${remainingLabel(t, now, state.settings.language)}</span>` : ''}${plannedDay(t) && plannedDay(t) < today ? html('<span>之前待办</span>') : ''}${t.files.length ? `<span>${icon('clip')} ${t.files.length}</span>` : ''}</div>${checklistHTML(t)}<div class="task-tools">${t.inbox ? html`<button data-today="${esc(t.id)}">安排今天</button><button data-edit="${esc(t.id)}">选择日期</button>` : `<button data-start="${esc(t.id)}">${t.current ? tr('正在做') : tr('开始')}</button>`}${t.due && remainingHours(t, now) <= 0 ? html`<button data-review="${esc(t.id)}">处理到期</button>` : ''}</div></article>`;
+    return html`<article class="plan-task task" data-task="${esc(t.id)}" draggable="true" data-priority="${effectiveLevel(t, now)}" data-heat="${urgency(t, now)}"><div class="task-top"><input type="checkbox" data-complete="${esc(t.id)}" aria-label="完成：${esc(t.title)}"><button class="task-title" data-edit="${esc(t.id)}">${esc(t.title)}</button>${!t.inbox ? `<button class="focus-star ${top ? 'chosen' : ''}" data-focus="${esc(t.id)}" title="${top ? tr('移出今天最重要的三件事') : tr('加入今天最重要的三件事')}" aria-label="${top ? tr('取消重要') : tr('标为重要')}">${top ? '★' : '☆'}</button>` : ''}</div><div class="task-meta">${t.repeat !== 'none' ? `<span>↻ ${repeatTag(t)}</span>` : ''}${t.checklist.length ? `<span>☑ ${t.checklist.filter(i => i.done).length}/${t.checklist.length}</span>` : ''}<span>${t.estimatedMinutes ? tr`${t.estimatedMinutes} 分钟` : tr('未估时')}</span>${t.due ? `<span class="due" title="${esc(fullDate(t.due))}">${remainingLabel(t, now, state.settings.language)}</span>` : ''}${plannedDay(t) && plannedDay(t) < today ? html('<span>之前待办</span>') : ''}${t.files.length ? `<span>${icon('clip')} ${t.files.length}</span>` : ''}</div>${checklistHTML(t)}<div class="task-tools">${t.inbox ? html`<button data-today="${esc(t.id)}">安排今天</button><button data-edit="${esc(t.id)}">选择日期</button>` : `<button data-start="${esc(t.id)}">${t.current ? tr('正在做') : tr('开始')}</button>`}${t.due && remainingHours(t, now) <= 0 ? html`<button data-review="${esc(t.id)}">处理到期</button>` : ''}</div></article>`;
   }
   function renderPlanner() {
     if (!state) return;
@@ -117,19 +124,26 @@
     $('#inbox-count').textContent = inbox.length || '';
     $('#task-count').textContent = tr`${active.length} 件待办`;
     const total = todays.reduce((sum, t) => sum + t.estimatedMinutes, 0);
+    const doneOn = day => state.tasks.filter(t => t.status === 'completed' && t.completedAt && dateKey(new Date(t.completedAt)) === day).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+    const doneToday = doneOn(today);
     if (view === 'today') {
       $('#planner').className = 'planner today-view';
-      $('#planner').innerHTML = html`<div class="view-heading"><div><h1>把今天，安排好。</h1><p>${todays.length} 件待办 · 已估时 ${total} 分钟${todays.some(t => !t.estimatedMinutes) ? tr(' · 部分任务未估时') : ''}</p></div><button class="text-button" data-add-today>＋ 安排一件事</button></div><section class="today-focus" data-focus-drop="true"><div class="section-heading"><h2>最重要的三件事</h2><span>${top.length} / 3</span></div><div class="focus-grid">${top.map(t => planRow(t, true)).join('')}${Array.from({ length: 3 - top.length }, (_, i) => html`<div class="focus-placeholder"><span>0${top.length + i + 1}</span><small>点 ☆ 或拖入重要任务</small></div>`).join('')}</div></section><section class="today-others" data-focus-drop="false"><div class="section-heading"><h2>其他待办</h2><span>拖动排序</span></div><div class="today-list">${other.map(t => planRow(t)).join('') || html('<div class="empty-zone">留一点空白给自己。</div>')}</div></section>`;
+      $('#planner').innerHTML = html`<div class="view-heading"><div><h1>把今天，安排好。</h1><p>${todays.length} 件待办 · 已估时 ${total} 分钟${todays.some(t => !t.estimatedMinutes) ? tr(' · 部分任务未估时') : ''}</p></div><button class="text-button" data-add-today>＋ 安排一件事</button></div><section class="today-focus" data-focus-drop="true"><div class="section-heading"><h2>最重要的三件事</h2><span>${top.length} / 3</span></div><div class="focus-grid">${top.map(t => planRow(t, true)).join('')}${Array.from({ length: 3 - top.length }, (_, i) => html`<div class="focus-placeholder"><span>0${top.length + i + 1}</span><small>点 ☆ 或拖入重要任务</small></div>`).join('')}</div></section><section class="today-others" data-focus-drop="false"><div class="section-heading"><h2>其他待办</h2><span>拖动排序</span></div><div class="today-list">${other.map(t => planRow(t)).join('') || html('<div class="empty-zone">留一点空白给自己。</div>')}</div></section>${doneToday.length ? html`<section class="today-done"><div class="section-heading"><h2>${tr('已完成')}</h2><button class="text-button" data-done-toggle="today" aria-expanded="${!collapsedDone.has('today')}">${collapsedDone.has('today') ? tr`展开 ${doneToday.length} 件` : tr('收起')}</button></div>${collapsedDone.has('today') ? '' : `<div class="today-list">${doneToday.map(doneRow).join('')}</div>`}</section>` : ''}`;
     } else if (view === 'week') {
       const d = new Date(now); d.setDate(d.getDate() + weekOffset * 7); const days = weekDays(d);
       $('#planner').className = 'planner week-view';
       $('#planner').innerHTML = html`<div class="view-heading"><div><h1>一周的节奏</h1><p>${days[0].slice(5)} — ${days[6].slice(5)} · 每日容量 ${state.settings.dailyCapacity} 分钟</p></div><div><button data-week="-1" aria-label="上一周">${icon('left')}</button><button data-week="0">本周</button><button data-week="1" aria-label="下一周">${icon('right')}</button></div></div><div class="week-board">${days.map((day, i) => {
         const list = active.filter(t => !t.inbox && plannedDay(t) === day).sort(byOrder), minutes = list.reduce((sum, t) => sum + t.estimatedMinutes, 0), unestimated = list.filter(t => !t.estimatedMinutes).length;
-        return html`<section class="week-lane" data-schedule="${day}" data-today="${day === today}"><div class="week-title"><span>周${(state.settings.language === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i] : '一二三四五六日'[i])}</span><strong>${Number(day.slice(-2))}</strong><button data-add-day="${day}" aria-label="安排到 ${day}">＋</button></div><div class="workload ${minutes > state.settings.dailyCapacity ? 'overloaded' : ''}"><span>${minutes} 分钟${minutes > state.settings.dailyCapacity ? tr(' · 偏满') : ''}</span><div class="load-track"><i style="width:${Math.min(100, minutes / state.settings.dailyCapacity * 100)}%"></i></div><small>${unestimated ? tr`${unestimated} 件未估时` : tr`${list.length} 件任务`}</small></div><div class="week-tasks">${list.map(t => planRow(t, t.focusDay === today)).join('') || html('<div class="empty-zone">拖入安排</div>')}</div></section>`;
+        const doneList = doneOn(day);
+        return html`<section class="week-lane" data-schedule="${day}" data-today="${day === today}"><div class="week-title"><span>周${(state.settings.language === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i] : '一二三四五六日'[i])}</span><strong>${Number(day.slice(-2))}</strong><button data-add-day="${day}" aria-label="安排到 ${day}">＋</button></div><div class="workload ${minutes > state.settings.dailyCapacity ? 'overloaded' : ''}"><span>${minutes} 分钟${minutes > state.settings.dailyCapacity ? tr(' · 偏满') : ''}</span><div class="load-track"><i style="width:${Math.min(100, minutes / state.settings.dailyCapacity * 100)}%"></i></div><small>${unestimated ? tr`${unestimated} 件未估时` : tr`${list.length} 件任务`}</small></div><div class="week-tasks">${list.map(t => planRow(t, t.focusDay === today)).join('') || html('<div class="empty-zone">拖入安排</div>')}</div>${doneList.length ? html`<div class="lane-done"><button class="text-button" data-done-toggle="${day}" aria-expanded="${!collapsedDone.has(day)}" title="${esc(tr('当天完成的任务记录'))}">${tr`✓ 已完成 ${doneList.length} 件`}</button>${collapsedDone.has(day) ? '' : `<div class="week-tasks lane-done-list">${doneList.map(doneRow).join('')}</div>`}</div>` : ''}</section>`;
       }).join('')}</div>`;
     } else if (view === 'inbox') {
       $('#planner').className = 'planner inbox-view';
       $('#planner').innerHTML = html`<div class="view-heading"><div><h1>让想法先落下来。</h1><p>无需选日期。准备好时，再安排进计划。</p></div><button id="capture-inbox">随手记 ＋</button></div><section data-inbox-drop class="inbox-list">${inbox.map(t => planRow(t)).join('') || html('<div class="inbox-empty"><span>收集箱是空的</span><small>Ctrl / ⌘ + Shift + 空格，随时记下一件事</small></div>')}</section>`;
+    } else if (view === 'stats') {
+      $('#planner').className = 'planner stats-view';
+      $('#planner').innerHTML = '';
+      renderStats();
     }
     if (compactMode) {
       const current = active.find(t => t.current);
@@ -137,6 +151,111 @@
       const unique = [...new Map(queue.map(t => [t.id, t])).values()].slice(0,3);
       $('#compact-panel').innerHTML = unique.length ? unique.map((t, i) => html`<div class="compact-task ${i === 0 ? 'current-task' : ''}"><small>${i === 0 ? tr('当前任务') : tr('接下来')}</small><div class="task-top"><input type="checkbox" data-complete="${esc(t.id)}" aria-label="完成：${esc(t.title)}"><button class="task-title" data-expand-edit="${esc(t.id)}">${esc(t.title)}</button><small>${t.estimatedMinutes ? tr`${t.estimatedMinutes} 分` : ''}</small></div>${checklistHTML(t)}</div>`).join('') : html('<div class="empty-zone">今天留一点空白。<br>点 ＋，安排一件事。</div>');
     }
+    window.PomodoroPanel?.setCurrentTask(active.find(t => t.current) || null);
+  }
+  // ---- 工作统计看板 ----
+  function nextRepeatDay(key, repeat, anchor, every = 2) {
+    const d = new Date(`${key}T12:00:00`);
+    if (repeat === 'monthly') { d.setDate(1); d.setMonth(d.getMonth() + 1); d.setDate(Math.min(anchor || 1, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); }
+    else if (repeat === 'interval') d.setDate(d.getDate() + Math.max(2, Number(every) || 2));
+    else { d.setDate(d.getDate() + (repeat === 'weekly' ? 7 : 1)); if (repeat === 'weekdays') while ([0, 6].includes(d.getDay())) d.setDate(d.getDate() + 1); }
+    return dateKey(d);
+  }
+  function habitChains() {
+    const byId = new Map(state.tasks.map(t => [t.id, t]));
+    const chains = new Map();
+    for (const t of state.tasks) {
+      if (t.repeat === 'none' || !plannedDay(t)) continue;
+      let root = t, guard = 0;
+      while (root.previousOccurrenceId && byId.has(root.previousOccurrenceId) && guard++ < 100) root = byId.get(root.previousOccurrenceId);
+      if (!chains.has(root.id)) chains.set(root.id, []);
+      chains.get(root.id).push(t);
+    }
+    return [...chains.values()].map(tasks => {
+      // plannedDay falls back to the due-derived day, so deadline-only repeat
+      // tasks (no planned date) still form a valid, sortable chain.
+      tasks.sort((a, b) => plannedDay(a).localeCompare(plannedDay(b)));
+      const latest = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      return { title: latest.title, repeat: latest.repeat, every: latest.repeatEvery || 2, anchor: latest.repeatAnchor, tasks };
+    });
+  }
+  function habitGrid(chain, today, windowDays = 84) {
+    const grid = new Map();
+    for (const t of chain.tasks) {
+      const day = plannedDay(t);
+      if (t.status === 'completed') grid.set(day, 'done');
+      else if (t.status === 'active' && !t.inbox && !grid.has(day)) grid.set(day, 'pending');
+    }
+    const dates = [...chain.tasks.map(t => plannedDay(t))].sort();
+    const markMissed = (start, endInclusive) => {
+      let d = nextRepeatDay(start, chain.repeat, chain.anchor, chain.every), guard = 0;
+      while (d <= endInclusive && guard++ < 400) { if (!grid.has(d)) grid.set(d, 'missed'); d = nextRepeatDay(d, chain.repeat, chain.anchor, chain.every); }
+    };
+    for (let i = 0; i < dates.length - 1; i++) markMissed(dates[i], dates[i + 1]);
+    markMissed(dates[dates.length - 1], today);
+    const scheduled = [...grid.entries()].filter(([day]) => day <= today).map(([day]) => day).sort();
+    const done = scheduled.filter(day => grid.get(day) === 'done');
+    let streak = 0;
+    for (let i = scheduled.length - 1; i >= 0; i--) {
+      const kind = grid.get(scheduled[i]);
+      if (kind === 'done') streak++;
+      else if (kind === 'pending') continue;
+      else break;
+    }
+    const rate = scheduled.length ? Math.round(done.length / scheduled.length * 100) : 100;
+    return { grid, scheduled, streak, rate };
+  }
+  function repeatText(chain) {
+    if (chain.repeat === 'interval') return tr`每 ${chain.every} 天`;
+    if (chain.repeat === 'weekdays') return tr('每个工作日');
+    return repeatLabels[chain.repeat] || tr('重复');
+  }
+  function renderStats() {
+    if (!state) return;
+    const today = dateKey(new Date(now));
+    const completions = state.tasks.filter(t => t.status === 'completed' && t.completedAt);
+    const doneDay = t => dateKey(new Date(t.completedAt));
+    const week = weekDays(new Date(now));
+    const weekDone = completions.filter(t => week.includes(doneDay(t)));
+    const overdue = state.tasks.filter(t => t.status === 'active' && !t.inbox && t.due && Date.parse(t.due) < now);
+    const overdue30 = overdue.filter(t => Date.parse(t.due) < now - 30 * 86400000);
+    const inbox = state.tasks.filter(t => t.status === 'active' && t.inbox);
+    const recent = completions.filter(t => doneDay(t) >= dateKey(new Date(now - 30 * 86400000)));
+    const late = recent.filter(t => t.due && Date.parse(t.completedAt) > Date.parse(t.due));
+    const onTime = recent.length - late.length;
+    const avgDelay = late.length ? (late.reduce((sum, t) => sum + (Date.parse(t.completedAt) - Date.parse(t.due)) / 86400000, 0) / late.length) : 0;
+    // 完成趋势：最近 14 天
+    const trendDays = Array.from({ length: 14 }, (_, i) => dateKey(new Date(now - (13 - i) * 86400000)));
+    const trend = trendDays.map(day => {
+      const list = completions.filter(t => doneDay(t) === day);
+      return { day, count: list.length, minutes: list.reduce((sum, t) => sum + t.estimatedMinutes, 0) };
+    });
+    const trendMax = Math.max(1, ...trend.map(d => d.count));
+    // 象限分布
+    const distribution = [0, 1, 2, 3].map(level => state.tasks.filter(t => t.status === 'active' && !t.inbox && effectiveLevel(t, now) === level).length);
+    const habits = habitChains().map(chain => ({ chain, ...habitGrid(chain, today) }));
+    const habitsHTML = habits.length ? habits.map(({ chain, grid, streak, rate }) => {
+      const start = new Date(new Date(`${today}T12:00:00`).getTime() - 83 * 86400000);
+      start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+      const weeks = [];
+      for (let w = 0; w < 12; w++) {
+        const cells = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(start); d.setDate(start.getDate() + w * 7 + i);
+          const day = dateKey(d), future = day > today, kind = grid.get(day);
+          const text = future ? tr('还没到') : kind === 'done' ? tr('已完成') : kind === 'pending' ? tr('待完成') : kind === 'missed' ? tr('未完成') : tr('未安排');
+          cells.push(`<i class="habit-cell ${future ? 'future' : kind || 'none'}" title="${esc(`${day} · ${text}`)}"></i>`);
+        }
+        weeks.push(`<span class="habit-week">${cells.join('')}</span>`);
+      }
+      return html`<section class="habit-card"><header><h3>${esc(chain.title)}</h3><span>${esc(repeatText(chain))} · ${esc(tr`连续 ${streak} 次`)} · ${esc(tr`完成率 ${rate}%`)}</span></header><div class="habit-grid">${weeks.join('')}</div></section>`;
+    }).join('') : html('<div class="stats-empty">还没有重复任务。给每天要做的运动、检查之类的事项设上「重复」，这里就会出现打卡记录。</div>');
+    $('#planner').innerHTML = html`<div class="view-heading"><div><h1>工作统计</h1><p>${esc(tr`最近 12 周 · 已完成 ${completions.length} 件 · 本周 ${weekDone.length} 件`)}</p></div><button class="text-button" id="stats-export">${tr('导出 CSV')}</button></div>
+      <div class="stats-cards"><div class="stat-card"><small>${tr('本周已完成')}</small><strong>${weekDone.length}</strong><span>${esc(tr`预计 ${weekDone.reduce((sum, t) => sum + t.estimatedMinutes, 0)} 分钟`)}</span></div><div class="stat-card"><small>${tr('当前逾期')}</small><strong class="${overdue.length ? 'late' : ''}">${overdue.length}</strong><span>${esc(tr`其中 ${overdue30.length} 件超过 30 天`)}</span></div><div class="stat-card"><small>${tr('近 30 天按时率')}</small><strong>${recent.length ? Math.round(onTime / recent.length * 100) : 100}%</strong><span>${esc(tr`逾期完成 ${late.length} 件${late.length ? tr`，平均晚 ${avgDelay.toFixed(1)} 天` : ''}`)}</span></div><div class="stat-card"><small>${tr('收集箱积压')}</small><strong>${inbox.length}</strong><span>${esc(tr('待安排进计划'))}</span></div></div>
+      <section class="stats-section"><h2>${tr('习惯打卡')}<span>${tr('哪天做了 · 哪天没做')}</span></h2><div class="habit-legend"><span class="habit-cell done"></span>${tr('做了')}<span class="habit-cell missed"></span>${tr('没做')}<span class="habit-cell pending"></span>${tr('待做')}</div>${habitsHTML}</section>
+      <section class="stats-section"><h2>${tr('完成趋势')}<span>${tr('最近 14 天')}</span></h2><div class="trend-chart">${trend.map(d => `<i class="trend-bar" style="height:${Math.round(d.count / trendMax * 100)}%" title="${esc(`${d.day.slice(5)} · ${tr`完成 ${d.count} 件`}${d.minutes ? tr` · ${d.minutes} 分钟` : ''}`)}"></i>`).join('')}</div><div class="trend-axis"><span>${trend[0].day.slice(5)}</span><span>${trend[13].day.slice(5)}</span></div></section>
+      <section class="stats-section"><h2>${tr('当前待办分布')}</h2><div class="dist-bars">${[0, 1, 2, 3].map(level => `<div class="dist-row"><span>${esc(labels[level])}</span><div class="dist-track"><i style="width:${distribution[level] ? Math.round(distribution[level] / Math.max(1, ...distribution) * 100) : 0}%"></i></div><em>${distribution[level]}</em></div>`).join('')}</div></section>`;
+    $('#stats-export').onclick = action(async () => { if (await call('export:csv')) toast(tr('已导出 CSV 表格')); });
   }
   async function reviewTask(id) {
     const t = state.tasks.find(t => t.id === id); if (!t || t.status !== 'active') return;
@@ -168,15 +287,41 @@
     if (!state) return;
     const y = month.getFullYear(), m = month.getMonth();
     const offset = (new Date(y, m, 1).getDay() + 6) % 7, total = new Date(y, m + 1, 0).getDate();
-    const active = state.tasks.filter(t => t.status === 'active'), counts = new Map();
-    for (const t of active) if (t.due) counts.set(taskDay(t), (counts.get(taskDay(t)) || 0) + 1);
+    const axis = state.settings.calendarAxis === 'due' ? 'due' : 'planned';
+    const active = state.tasks.filter(t => t.status === 'active');
+    const plannedCounts = new Map(), dueCounts = new Map(), doneCounts = new Map();
+    for (const t of active) {
+      const day = plannedDay(t);
+      if (day) plannedCounts.set(day, (plannedCounts.get(day) || 0) + 1);
+      if (t.due) dueCounts.set(taskDay(t), (dueCounts.get(taskDay(t)) || 0) + 1);
+    }
+    for (const t of state.tasks) {
+      if (t.status !== 'completed' || !t.completedAt) continue;
+      const day = dateKey(new Date(t.completedAt));
+      doneCounts.set(day, (doneCounts.get(day) || 0) + 1);
+    }
     let days = '<span></span>'.repeat(offset);
     for (let d = 1; d <= total; d++) {
-      const key = `${y}-${pad(m + 1)}-${pad(d)}`, count = counts.get(key) || 0;
-      days += html`<button class="day" data-day="${key}" aria-pressed="${selectedDay === key}" data-today="${key === dateKey(new Date(now))}" aria-label="${key}，${count} 件到期任务">${d}${count ? '<span class="day-dot"></span>' : ''}</button>`;
+      const key = `${y}-${pad(m + 1)}-${pad(d)}`;
+      const planned = plannedCounts.get(key) || 0, due = dueCounts.get(key) || 0, done = doneCounts.get(key) || 0;
+      const count = axis === 'due' ? due : planned;
+      const label = axis === 'due' ? tr`${key}，到期 ${due} 件，完成 ${done} 件` : tr`${key}，计划 ${planned} 件，完成 ${done} 件`;
+      const dots = `${count ? '<span class="day-dot"></span>' : ''}${done ? '<span class="day-dot done"></span>' : ''}`;
+      days += html`<button class="day" data-day="${key}" aria-pressed="${selectedDay === key}" data-today="${key === dateKey(new Date(now))}" aria-label="${esc(label)}" title="${esc(label)}">${d}${dots}</button>`;
     }
-    const day = selectedDay || dateKey(new Date(now)), list = active.filter(t => taskDay(t) === day).sort((a, b) => a.due.localeCompare(b.due));
-    $('#calendar').innerHTML = html`<div class="month-heading"><span>${month.toLocaleDateString(locale(), { year: 'numeric', month: 'long' })}</span><div class="month-navigation"><button data-month="-1" aria-label="上个月">${icon('left')}</button><button id="calendar-today" class="today-button">今天</button><button data-month="1" aria-label="下个月">${icon('right')}</button></div></div><div class="weekdays">${[tr('一'), tr('二'), tr('三'), tr('四'), tr('五'), tr('六'), tr('日')].map(s => `<span>${s}</span>`).join('')}</div><div class="calendar-days">${days}</div><div class="agenda"><div class="agenda-header"><span>${day.slice(5).replace('-', ' / ')} 到期</span><button id="calendar-add" aria-label="在选中日期新建任务">${icon('plus')}</button></div>${list.map(t => `<button class="agenda-item" data-edit="${esc(t.id)}"><small>${localTime(t.due).slice(11)}</small><span>${esc(t.title)}</span></button>`).join('') || html('<div class="agenda-empty">没有到期任务</div>')}</div><p class="calendar-hint">截止日历 · 拖入修改截止日期</p>`;
+    const day = selectedDay || dateKey(new Date(now));
+    const plannedList = active.filter(t => plannedDay(t) === day).sort(byOrder);
+    const dueList = active.filter(t => taskDay(t) === day).sort((a, b) => a.due.localeCompare(b.due));
+    const doneList = state.tasks.filter(t => t.status === 'completed' && t.completedAt && dateKey(new Date(t.completedAt)) === day).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+    const groups = [];
+    const planItem = t => `<button class="agenda-item" draggable="true" data-task="${esc(t.id)}" data-edit="${esc(t.id)}"><span>${esc(t.title)}</span><small>${t.estimatedMinutes ? esc(tr`${t.estimatedMinutes} 分`) : ''}</small></button>`;
+    const dueItem = t => `<button class="agenda-item" draggable="true" data-task="${esc(t.id)}" data-edit="${esc(t.id)}"><small>${localTime(t.due).slice(11)}</small><span>${esc(t.title)}</span></button>`;
+    const doneItem = t => `<button class="agenda-item done" data-edit="${esc(t.id)}" title="${esc(tr('已完成，点开可查看或恢复'))}"><small>✓ ${localTime(t.completedAt).slice(11)}</small><span>${esc(t.title)}</span></button>`;
+    const push = (title, list, items, kind) => { if (list.length) groups.push(`<section class="agenda-group ${kind}"><h3>${esc(title)}<span>${list.length}</span></h3>${items.join('')}</section>`); };
+    if (axis === 'due') { push(tr('到期'), dueList, dueList.map(dueItem), 'due'); push(tr('计划做'), plannedList, plannedList.map(planItem), 'planned'); }
+    else { push(tr('计划做'), plannedList, plannedList.map(planItem), 'planned'); push(tr('到期'), dueList, dueList.map(dueItem), 'due'); }
+    push(tr('已完成'), doneList, doneList.map(doneItem), 'done');
+    $('#calendar').innerHTML = html`<div class="month-heading"><span>${month.toLocaleDateString(locale(), { year: 'numeric', month: 'long' })}</span><div class="month-navigation"><div class="axis-toggle" role="group" aria-label="${esc(tr('日历模式'))}"><button data-axis="planned" aria-pressed="${axis === 'planned'}" title="${esc(tr('按计划日期查看'))}">${tr('计划')}</button><button data-axis="due" aria-pressed="${axis === 'due'}" title="${esc(tr('按截止日期查看'))}">${tr('截止')}</button></div><button data-month="-1" aria-label="上个月">${icon('left')}</button><button id="calendar-today" class="today-button">今天</button><button data-month="1" aria-label="下个月">${icon('right')}</button></div></div><div class="weekdays">${[tr('一'), tr('二'), tr('三'), tr('四'), tr('五'), tr('六'), tr('日')].map(s => `<span>${s}</span>`).join('')}</div><div class="calendar-days">${days}</div><div class="agenda" data-day="${day}"><div class="agenda-header"><span>${day.slice(5).replace('-', ' / ')}${axis === 'due' ? tr(' · 截止') : ''}</span><button id="calendar-add" aria-label="在选中日期新建任务">${icon('plus')}</button></div>${groups.join('') || html('<div class="agenda-empty">没有任务。拖任务到日期格，可安排到这天做。</div>')}</div><p class="calendar-hint">绿点 = 计划 · 点 = 完成（历史） · 拖任务到日期格：安排做或改截止</p>`;
   }
 
   function ask(title, detail, options = [{ label: tr('取消'), value: false }, { label: tr('确定'), value: true, primary: true }]) {
@@ -193,7 +338,7 @@
   function editorValue() {
     const previous = state.tasks.find(t => t.id === editingId), localDue = $('#task-due').value;
     const due = localDue === localTime(previous?.due) ? (previous?.due || null) : localDue ? new Date(localDue).toISOString() : null;
-    return { repeat: $('#task-repeat').value, checklist: draftChecklist, plannedDate: $('#task-planned').value || null, estimatedMinutes: Number($('#task-estimate').value), inbox: $('#task-inbox').checked, title: $('#task-title').value.trim(), level: Number($('#task-level').value), due, notes: $('#task-notes').value, reminder: $('#task-reminder').checked };
+    return { repeat: $('#task-repeat').value, repeatEvery: Number($('#task-repeat-every').value) || 2, checklist: draftChecklist, plannedDate: $('#task-planned').value || null, estimatedMinutes: Number($('#task-estimate').value), inbox: $('#task-inbox').checked, title: $('#task-title').value.trim(), level: Number($('#task-level').value), due, notes: $('#task-notes').value, reminder: $('#task-reminder').checked };
   }
   function editorSignature() { return JSON.stringify({ ...editorValue(), paths: draftFiles.map(f => f.path) }); }
   async function closeEditor() {
@@ -215,7 +360,7 @@
     $('#task-dialog-title').textContent = t ? tr('任务详情') : tr('新建任务');
     $('#task-title').value = source.title; $('#task-level').value = source.level; $('#task-due').value = localTime(source.due); $('#task-notes').value = source.notes; $('#task-reminder').checked = source.reminder;
     $('#task-planned').value = source.plannedDate || ''; $('#task-estimate').value = source.estimatedMinutes || 0; $('#task-inbox').checked = !!source.inbox;
-    $('#task-repeat').value = source.repeat || 'none'; draftChecklist = (source.checklist || []).map(item => ({ ...item })); $('#task-checklist').value = draftChecklist.map(item => item.text).join('\n'); renderChecklist();
+    $('#task-repeat').value = source.repeat || 'none'; $('#task-repeat-every').value = source.repeatEvery || 2; updateRepeatEvery(); draftChecklist = (source.checklist || []).map(item => ({ ...item })); $('#task-checklist').value = draftChecklist.map(item => item.text).join('\n'); renderChecklist();
     $('#delete-task').hidden = !t || t.status === 'deleted'; $('#complete-task').hidden = !t || t.status !== 'active';
     $('#editor-error').hidden = true; $('#save-task').disabled = false;
     updateAutoHint(); editorInitial = editorSignature(); renderAttachments();
@@ -238,6 +383,7 @@
     const t = { status: 'active', level: Number($('#task-level').value), due: $('#task-due').value || null };
     $('#auto-hint').hidden = !(t.level === 1 && effectiveLevel(t, now) === 0);
   }
+  function updateRepeatEvery() { $('#repeat-every-field').hidden = $('#task-repeat').value !== 'interval'; }
   async function saveEditor() {
     if (busy || pendingAttachments) return false;
     const form = $('#task-form'); if (!form.reportValidity()) return false;
@@ -337,11 +483,36 @@
     await call('update', { id, patch: { due: target.toISOString() } }); selectedDay = targetDay; renderBoard(); renderCalendar(); toast(tr`已改为 ${label}`, true);
   }
 
+  // Dropping a task onto a calendar day offers both meanings instead of guessing:
+  // schedule the task for that day, or move its deadline. The bubble auto-dismisses.
+  let dropChoiceNode = null, dropChoiceTimer = 0;
+  function hideDropChoice() {
+    clearTimeout(dropChoiceTimer); dropChoiceTimer = 0;
+    dropChoiceNode?.remove(); dropChoiceNode = null;
+  }
+  function showDropChoice(id, day, x, y) {
+    hideDropChoice();
+    const menu = document.createElement('div');
+    menu.className = 'popover drop-choice';
+    menu.role = 'menu';
+    menu.innerHTML = `<strong>${esc(day.slice(5).replace('-', ' / '))}</strong><button class="primary" data-drop-action="plan">${esc(tr('安排到这天做'))}</button><button data-drop-action="due">${esc(tr('改截止到这天'))}</button>`;
+    menu.style.left = `${Math.max(8, Math.min(x - 60, window.innerWidth - 176))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y + 8, window.innerHeight - 108))}px`;
+    menu.dataset.task = id; menu.dataset.day = day;
+    document.body.append(menu); dropChoiceNode = menu;
+    dropChoiceTimer = setTimeout(hideDropChoice, 8000);
+  }
+  async function applyDropChoice(id, day, action) {
+    hideDropChoice();
+    if (action === 'plan') { await call('plan', { id, day }); selectedDay = day; toast(tr`已安排到 ${day}`, true); }
+    else await reschedule(id, day);
+  }
+
   $('#new-task').onclick = action(async () => { if (state.settings.compactMode) await call('window:compact', { enabled: false }); return openEditor(null, state.settings.view === 'inbox' ? { inbox: true, level: 3 } : state.settings.view === 'today' ? { plannedDate: dateKey(new Date(now)) } : {}); });
   $('#calendar-toggle').onclick = action(async () => { closePopovers(); if (state.settings.calendarOpen) selectedDay = ''; await call('settings', { calendarOpen: !state.settings.calendarOpen }); });
   $('#search-button').onclick = () => openLibrary();
-  $('#menu-button').onclick = event => { event.stopPropagation(); const show = $('#app-menu').hidden; closePopovers(); $('#app-menu').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); };
-  $('#opacity-button').onclick = event => { event.stopPropagation(); const show = $('#opacity-popover').hidden; closePopovers(); $('#opacity-popover').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); };
+  $('#menu-button').onclick = event => { event.stopPropagation(); const show = $('#app-menu').hidden; window.PomodoroPanel?.close(); closePopovers(); $('#app-menu').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); };
+  $('#opacity-button').onclick = event => { event.stopPropagation(); const show = $('#opacity-popover').hidden; window.PomodoroPanel?.close(); closePopovers(); $('#opacity-popover').hidden = !show; event.currentTarget.setAttribute('aria-expanded', String(show)); };
   $('#transparency').oninput = event => setTransparency(Number(event.target.value));
   $('#transparency').onchange = action(async event => { try { await call('settings', { transparency: Number(event.target.value) }); } catch (e) { setTransparency(state.settings.transparency); throw e; } });
   $('#opacity-default').onclick = action(() => call('settings', { transparency: 35, textTransparency: 0 }));
@@ -361,7 +532,7 @@
   $('#restore-backup').onclick = action(async () => { if (await call('backup:restore')) { selectedDay = ''; renderBoard(); renderCalendar(); toast(tr('已从备份恢复')); } });
   $('#backup-folder').onclick = action(() => call('backup:folder'));
   $('#task-title').oninput = () => $('#task-title').setCustomValidity('');
-  $('#task-level').onchange = updateAutoHint; $('#task-due').oninput = updateAutoHint;
+  $('#task-level').onchange = updateAutoHint; $('#task-due').oninput = updateAutoHint; $('#task-repeat').onchange = updateRepeatEvery;
   $('#task-form').onsubmit = event => { event.preventDefault(); saveEditor().catch(error); };
   $('#editor-close').onclick = action(closeEditor);
   $('#task-dialog').oncancel = event => { event.preventDefault(); closeEditor().catch(error); };
@@ -397,9 +568,15 @@
     const edit = event.target.closest('[data-edit]'); if (edit) await openEditor(edit.dataset.edit);
     const date = event.target.closest('[data-day]'); if (date) { selectedDay = selectedDay === date.dataset.day ? '' : date.dataset.day; renderBoard(); renderCalendar(); }
     const nav = event.target.closest('[data-month]'); if (nav) { month = new Date(month.getFullYear(), month.getMonth() + Number(nav.dataset.month), 1); renderCalendar(); }
+    const axis = event.target.closest('[data-axis]'); if (axis && axis.getAttribute('aria-pressed') !== 'true') await call('settings', { calendarAxis: axis.dataset.axis });
+    const doneToggle = event.target.closest('[data-done-toggle]');
+    if (doneToggle) { const key = doneToggle.dataset.doneToggle; if (collapsedDone.has(key)) collapsedDone.delete(key); else collapsedDone.add(key); renderPlanner(); }
     if (event.target.closest('#calendar-today')) { const today = new Date(now); month = new Date(today.getFullYear(), today.getMonth(), 1); selectedDay = dateKey(today); renderBoard(); renderCalendar(); }
-    if (event.target.closest('#calendar-add')) await openEditor(null, { level: 1, due: `${selectedDay || dateKey(new Date(now))}T18:00` });
+    if (event.target.closest('#calendar-add')) { const day = selectedDay || dateKey(new Date(now)); await openEditor(null, state.settings.calendarAxis === 'due' ? { level: 1, due: `${day}T18:00` } : { level: 1, plannedDate: day }); }
     const status = event.target.closest('[data-status]'); if (status) { await call('status', { id: status.dataset.id, action: status.dataset.status }); toast(status.dataset.status === 'delete' ? tr('已移到回收站') : tr('任务已恢复'), true); }
+    const dropAction = event.target.closest('[data-drop-action]');
+    if (dropAction && dropAction.parentElement?.dataset.task) await applyDropChoice(dropAction.parentElement.dataset.task, dropAction.parentElement.dataset.day, dropAction.dataset.dropAction);
+    else if (!event.target.closest('.drop-choice')) hideDropChoice();
     const purge = event.target.closest('[data-purge]'); if (purge && await call('purge', { id: purge.dataset.purge })) toast(tr('已永久删除任务记录'));
     const fileOpen = event.target.closest('[data-file-open]'); if (fileOpen && editingId) { try { await call('files:open', { taskId: editingId, fileId: fileOpen.dataset.fileOpen }); } catch (e) { availability.set(fileOpen.dataset.fileOpen, false); renderAttachments(); throw e; } }
     const folder = event.target.closest('[data-folder]'); if (folder) await call('files:open', { taskId: editingId, fileId: folder.dataset.folder, folder: true });
@@ -467,7 +644,7 @@
       const task = event.target.closest('[data-task]');
       await api.dropFiles(files, { taskId: task?.dataset.task, level: Number(zone.dataset.level) }); toast(task ? tr('已关联文件') : tr('已从文件创建任务'), true); return;
     }
-    if (id && date) await reschedule(id, date.dataset.day);
+    if (id && date) { showDropChoice(id, date.dataset.day, event.clientX, event.clientY); return; }
     else if (id && zone) {
       const level = Number(zone.dataset.level); await call('update', { id, patch: { level, inbox: false } });
       const task = state.tasks.find(t => t.id === id); toast(task && level === 1 && effectiveLevel(task, Date.now()) === 0 ? tr('距截止不超过 48 小时，仍显示在「马上做」') : tr`已移到「${labels[level]}」`, true);
@@ -505,7 +682,7 @@
   document.addEventListener('pointerdown', () => document.body.classList.remove('keyboard-navigation'));
   document.addEventListener('keydown', action(async event => {
     if (event.key === 'Tab') document.body.classList.add('keyboard-navigation');
-    if (event.key === 'Escape') closePopovers();
+    if (event.key === 'Escape') { closePopovers(); hideDropChoice(); }
     const command = event.ctrlKey || event.metaKey;
     if (!command) return;
     if (event.key.toLowerCase() === 'n' && !document.querySelector('dialog[open]')) { event.preventDefault(); await openEditor(); }
@@ -515,7 +692,7 @@
 
   if (!api) { $('#task-count').textContent = tr('请通过桌面应用启动日序'); return; }
   api.onActive(active => { panelActive = active; tryShowUpdate(); });
-  api.onCommand(command => { if (command === 'settings') $('#settings-button').click(); if (command === 'compact') $('#compact-toggle').click(); });
+  api.onCommand(command => { if (command === 'settings') $('#settings-button').click(); if (command === 'compact') $('#compact-toggle').click(); if (command === 'pomodoro') window.PomodoroPanel?.toggle(); });
   api.onUpdates(updates => { if (!state) return; state = { ...state, updates }; renderUpdateStatus(); tryShowUpdate(); });
   api.onState(receive);
   api.onMessage(text => toast(text));

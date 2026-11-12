@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createTask, patchTask, effectiveLevel, urgency, validateState, emptyState, pendingReminders, HOUR } = require('../src/domain.cjs');
+const { createTask, patchTask, effectiveLevel, urgency, validateState, validateSettings, emptyState, pendingReminders, HOUR } = require('../src/domain.cjs');
 const base = Date.parse('2026-09-13T01:00:00Z');
 const task = (hours, level = 1) => createTask({ title: '准备汇报', level, due: new Date(base + hours * HOUR).toISOString() }, base - HOUR);
 
@@ -42,6 +42,17 @@ test('task input and backup validation reject malformed data', () => {
   assert.throws(() => createTask({ title: '任务', due: 'not-a-date' }));
   const s = emptyState(), t = task(10); s.tasks.push(t, t); assert.throws(() => validateState(s), /重复/);
   assert.throws(() => validateState({ ...emptyState(), schemaVersion: 99 }));
+});
+test('calendar axis and stats view are accepted settings, invalid values rejected', () => {
+  assert.equal(validateSettings({ calendarAxis: 'due' }).calendarAxis, 'due');
+  assert.equal(validateSettings({ view: 'stats' }).view, 'stats');
+  assert.equal(emptyState().settings.calendarAxis, 'planned');
+  assert.throws(() => validateSettings({ calendarAxis: 'year' }), /日历/);
+});
+test('colour palette is a persisted setting with a default and a closed value set', () => {
+  assert.equal(validateSettings({ palette: 'paper' }).palette, 'paper');
+  assert.equal(emptyState().settings.palette, 'ink');
+  assert.throws(() => validateSettings({ palette: 'rainbow' }), /主题色/);
 });
 test('equivalent timezone offsets produce identical urgency', () => {
   const t = task(72), other = { ...t, due: '2026-09-16T09:00:00+08:00' };

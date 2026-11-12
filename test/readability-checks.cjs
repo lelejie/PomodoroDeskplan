@@ -36,7 +36,7 @@ module.exports = async function readabilityChecks(runtime, js, call) {
   await call('window:compact', { enabled: true });
   await move(200, 100); assert.equal(await railOpacity(), '0');
   await move(20, 20); assert.equal(await railOpacity(), '1');
-  assert.deepEqual(await js('[...document.querySelectorAll(".tool-rail button")].filter(e=>e.getClientRects().length).map(e=>e.id)'), ['new-task','compact-toggle']);
+  assert.deepEqual(await js('[...document.querySelectorAll(".tool-rail button")].filter(e=>e.getClientRects().length).map(e=>e.id)'), ['new-task','compact-toggle','pomodoro-button']);
   await call('window:compact', { enabled: false });
   await call('settings', { textTransparency: 0, transparency: 65, desktopBlend: true });
   await move(250, 200);

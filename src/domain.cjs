@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const LABELS = ['马上做', '尽快做', '按计划做', '先放着'];
 const { HOUR, remainingHours, effectiveLevel, urgency } = require('./renderer/time.js');
 const DEFAULT_SETTINGS = {
-  transparency: 35, theme: 'system', alwaysOnTop: false, calendarOpen: false,
+  transparency: 35, theme: 'system', palette: 'ink', alwaysOnTop: false, calendarOpen: false, calendarAxis: 'planned',
   notifications: false, remindBefore: false, remindAt: true, autoUpdates: true,
   autoStart: false, windowSize: 'compact',
   textTransparency: 0, view: 'quadrants', compactMode: false, quickCapture: true,
@@ -27,7 +27,8 @@ function planDate(value) {
   return value;
 }
 function minutes(value = 0) { invariant(Number.isInteger(value) && value >= 0 && value <= 1440, '预计耗时应为 0–1440 分钟'); return value; }
-function repeatRule(value = 'none') { invariant(['none', 'daily', 'weekdays', 'weekly', 'monthly'].includes(value), '重复规则无效'); return value; }
+function repeatRule(value = 'none') { invariant(['none', 'daily', 'weekdays', 'weekly', 'monthly', 'interval'].includes(value), '重复规则无效'); return value; }
+function repeatEvery(value = 2) { invariant(Number.isInteger(value) && value >= 2 && value <= 30, '重复间隔应为 2–30 天'); return value; }
 function checklist(value = []) {
   invariant(Array.isArray(value) && value.length <= 30, '子清单最多 30 项');
   const ids = new Set();
@@ -45,6 +46,7 @@ function createTask(input, now = Date.now()) {
     id: randomUUID(), title, inbox: !!input.inbox && !input.plannedDate, plannedDate: planDate(input.plannedDate),
     estimatedMinutes: minutes(input.estimatedMinutes), order: now, focusDay: null, current: false, cancelledAt: null,
     reviewedDueVersion: 0, snoozeUntil: null, repeat: repeatRule(input.repeat),
+    repeatEvery: input.repeat === 'interval' ? repeatEvery(input.repeatEvery ?? 2) : null,
     repeatAnchor: input.repeatAnchor || Number((input.plannedDate || (input.due ? require('./renderer/time.js').dateKey(new Date(input.due)) : time.slice(0, 10))).slice(-2)),
     previousOccurrenceId: null, checklist: checklist(input.checklist), notes: cleanText(input.notes, 5000), level: validateLevel(input.level ?? 1),
     due: parseDue(input.due), dueVersion: 1, dueChangedAt: time,
@@ -59,6 +61,7 @@ function patchTask(task, patch, now = Date.now()) {
   if ('notes' in patch) next.notes = cleanText(patch.notes, 5000);
   if ('level' in patch) next.level = validateLevel(patch.level);
   if ('repeat' in patch) { next.repeat = repeatRule(patch.repeat); if (next.repeat !== task.repeat) next.repeatAnchor = Number((patch.plannedDate || task.plannedDate || require('./renderer/time.js').dateKey(new Date(patch.due || task.due || now))).slice(-2)); }
+  if ('repeatEvery' in patch || next.repeat === 'interval') next.repeatEvery = next.repeat === 'interval' ? repeatEvery(patch.repeatEvery ?? task.repeatEvery ?? 2) : null;
   if ('checklist' in patch) next.checklist = checklist(patch.checklist);
   if ('reminder' in patch) next.reminder = !!patch.reminder;
   if ('plannedDate' in patch) { next.plannedDate = planDate(patch.plannedDate); if (next.plannedDate) next.inbox = false; }
@@ -80,10 +83,12 @@ function validateSettings(patch) {
     else if (key === 'windowPosition') { invariant(['top-right', 'manual'].includes(value), '停靠位置无效'); next[key] = value; }
     else if (key === 'desktopInset') { invariant(Number.isInteger(value) && value >= 0 && value <= 480, '右侧留白应为 0–480 像素'); next[key] = value; }
     else if (key === 'language') { invariant(['zh-CN', 'en'].includes(value), '语言设置无效'); next[key] = value; }
-    else if (key === 'view') { invariant(['quadrants', 'today', 'week', 'inbox'].includes(value), '视图无效'); next[key] = value; }
+    else if (key === 'view') { invariant(['quadrants', 'today', 'week', 'inbox', 'stats'].includes(value), '视图无效'); next[key] = value; }
+  else if (key === 'calendarAxis') { invariant(['planned', 'due'].includes(value), '日历模式无效'); next[key] = value; }
     else if (key === 'quickShortcut') { invariant(['CommandOrControl+Shift+Space', 'Alt+Shift+Space'].includes(value), '快捷键无效'); next[key] = value; }
     else if (key === 'dailyCapacity') { invariant(Number.isInteger(value) && value >= 30 && value <= 1440, '每日容量应为 30–1440 分钟'); next[key] = value; }
     else if (key === 'theme') { invariant(['system', 'light', 'dark'].includes(value), '外观设置无效'); next[key] = value; }
+    else if (key === 'palette') { invariant(['ink', 'paper', 'graphite', 'ocean', 'plum'].includes(value), '主题色无效'); next[key] = value; }
     else if (key === 'windowSize') { invariant(['compact', 'normal', 'large'].includes(value), '窗口尺寸无效'); next[key] = value; }
     else { invariant(typeof value === 'boolean', '设置值无效'); next[key] = value; }
   }
@@ -114,7 +119,7 @@ function validateState(data) {
       id: t.id, title: t.title.trim(), inbox: !!t.inbox, plannedDate: planDate(t.plannedDate),
       estimatedMinutes: minutes(t.estimatedMinutes), order: Number.isFinite(t.order) ? t.order : Date.parse(createdAt),
       focusDay: planDate(t.focusDay), current: !!t.current, cancelledAt: parseDue(t.cancelledAt),
-      repeat: repeatRule(t.repeat), repeatAnchor: Number.isInteger(t.repeatAnchor) && t.repeatAnchor >= 1 && t.repeatAnchor <= 31 ? t.repeatAnchor : Number((t.plannedDate || require('./renderer/time.js').dateKey(new Date(t.due || createdAt))).slice(-2)),
+      repeat: repeatRule(t.repeat), repeatEvery: t.repeat === 'interval' ? repeatEvery(t.repeatEvery ?? 2) : null, repeatAnchor: Number.isInteger(t.repeatAnchor) && t.repeatAnchor >= 1 && t.repeatAnchor <= 31 ? t.repeatAnchor : Number((t.plannedDate || require('./renderer/time.js').dateKey(new Date(t.due || createdAt))).slice(-2)),
       previousOccurrenceId: typeof t.previousOccurrenceId === 'string' ? t.previousOccurrenceId.slice(0, 100) : null,
       snoozeUntil: parseDue(t.snoozeUntil), checklist: checklist(t.checklist),
       reviewedDueVersion: Number.isSafeInteger(t.reviewedDueVersion) ? t.reviewedDueVersion : 0, notes: cleanText(t.notes, 5000), level: validateLevel(t.level),

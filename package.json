@@ -7,7 +7,7 @@
   "description": "DeskPlan / 日序 — Desktop task planning, Today, Week and urgency quadrants",
   "main": "src/main.cjs",
   "scripts": {
-    "start": "electron .",
+    "start": "electron scripts/dev-start.cjs",
     "test": "node --test --test-reporter=tap test/*.test.cjs",
     "test:desktop": "electron test/desktop-smoke.cjs",
     "package": "node scripts/build.cjs",

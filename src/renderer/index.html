@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>日序</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="pomodoro.css">
 </head>
 <body>
   <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -33,6 +34,8 @@
     <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/></symbol>
     <symbol id="i-dock" viewBox="0 0 24 24"><path d="M4 9V4h16v16h-5M9 15 20 4M13 4h7v7"/></symbol>
     <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18m-12-6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6M12 2v3"/></symbol>
+    <symbol id="i-stats" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   </defs></svg>
 
   <div class="app-window" id="app" role="region" aria-label="日序">
@@ -40,6 +43,7 @@
       <nav class="view-tabs" aria-label="任务视图"><button data-tab="today" aria-label="今天" title="今天"><svg class="icon" aria-hidden="true"><use href="#i-today"/></svg></button>
       <button data-tab="week" aria-label="本周" title="本周"><svg class="icon" aria-hidden="true"><use href="#i-week"/></svg></button>
       <button data-tab="quadrants" aria-label="四象限" title="四象限"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg></button>
+      <button data-tab="stats" aria-label="统计" title="工作统计"><svg class="icon" aria-hidden="true"><use href="#i-stats"/></svg></button>
       <button data-tab="inbox" aria-label="收集箱" title="收集箱"><svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg><span id="inbox-count"></span></button>
       </nav>
       <div class="rail-divider"></div>
@@ -51,7 +55,8 @@
       <button id="compact-toggle" aria-label="缩为小窗" title="缩为小窗" ><svg class="icon" aria-hidden="true"><use href="#i-compact"/></svg></button>
       </div>
       <div class="rail-spacer" title="解锁后拖动此处移动"></div>
-      <div class="toolbar-controls"><button id="position-toggle" aria-label="解锁位置" title="解锁位置" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></button>
+      <div class="toolbar-controls"><button id="pomodoro-button" aria-label="番茄钟" title="番茄钟" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-timer"/></svg><span id="pomodoro-badge" hidden></span></button>
+      <button id="position-toggle" aria-label="解锁位置" title="解锁位置" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg></button>
       <button id="dock-right" aria-label="停靠右上角" title="停靠右上角" ><svg class="icon" aria-hidden="true"><use href="#i-dock"/></svg></button>
       <button id="settings-button" aria-label="设置与备份" title="设置与备份" ><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg></button>
       <button id="menu-button" aria-label="更多" title="更多" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
@@ -63,6 +68,24 @@
       <div class="range-labels"><span>不透明</span><span>完全透明</span></div>
       <label for="text-transparency" class="text-opacity-label">文字透明度 <output id="text-transparency-value">0%</output></label><input id="text-transparency" type="range" min="0" max="100" value="0"><small>工具栏保留可见，随时可以恢复。</small><button class="text-button" id="opacity-default">恢复默认</button>
     </div>
+    <section class="popover pomodoro-popover" id="pomodoro-popover" hidden aria-label="番茄钟" role="dialog">
+      <header class="pomodoro-head"><strong id="pomodoro-phase">专注</strong><span id="pomodoro-round">第 1 轮</span><button id="pomodoro-detach" aria-label="独立窗口" title="独立窗口"><svg class="icon"><use href="#i-dock"/></svg></button><button id="pomodoro-close" aria-label="关闭番茄钟"><svg class="icon"><use href="#i-close"/></svg></button></header>
+      <div class="pomodoro-time" id="pomodoro-time" role="timer" aria-live="off">25:00</div>
+      <div class="pomodoro-dots" id="pomodoro-dots" aria-hidden="true"></div>
+      <div class="pomodoro-current"><small>当前任务</small><span id="pomodoro-current">还没有设为「正在做」的任务</span></div>
+      <div class="pomodoro-actions"><button id="pomodoro-toggle" class="primary">开始</button><button id="pomodoro-reset">重置</button><button id="pomodoro-skip">跳过</button></div>
+      <div class="pomodoro-custom-row"><input id="pomodoro-custom" type="number" min="1" max="180" step="1" value="4" aria-label="自定义倒计时分钟数"><small>分钟</small><button id="pomodoro-countdown">倒计时</button></div>
+      <small class="pomodoro-custom-hint">按任务需要直接开始一段自定义时长的专注，完成后照常计入番茄钟</small>
+      <div class="pomodoro-status" id="pomodoro-status" role="status" aria-live="polite">专注 25 分钟 · 休息 5 分钟</div>
+      <details class="pomodoro-settings"><summary>时长与自动化</summary>
+        <div class="pomodoro-fields"><label><span>专注</span><input id="pomodoro-focus" type="number" min="1" max="180" step="1" value="25"><small>分</small></label><label><span>短休息</span><input id="pomodoro-short" type="number" min="1" max="60" step="1" value="5"><small>分</small></label><label><span>长休息</span><input id="pomodoro-long" type="number" min="1" max="120" step="1" value="15"><small>分</small></label><label><span>长休间隔</span><input id="pomodoro-interval" type="number" min="1" max="12" step="1" value="4"><small>轮</small></label></div>
+        <label class="check-field"><input type="checkbox" id="pomodoro-auto-break" checked><span>专注结束自动开始休息</span></label>
+        <label class="check-field"><input type="checkbox" id="pomodoro-auto-focus"><span>休息结束自动开始专注</span></label>
+        <label class="check-field"><input type="checkbox" id="pomodoro-sound" checked><span>结束提示音</span></label>
+        <label class="check-field"><input type="checkbox" id="pomodoro-auto-top" checked><span>计时运行时小窗悬浮置顶</span></label>
+      </details>
+      <div class="pomodoro-foot"><button id="pomodoro-complete" class="text-button" hidden>完成当前任务</button></div>
+    </section>
     <nav class="popover app-menu" id="app-menu" hidden aria-label="更多功能">
       <button data-view="completed">已完成</button><button data-view="deleted">回收站</button>
       <button data-view="cancelled">已取消</button><button id="quick-open">随手记</button>
@@ -72,7 +95,7 @@
     <div class="workspace" id="workspace">
       <main id="planner" class="planner" hidden></main>
       <main id="board" class="board" aria-label="四档任务分区"></main>
-      <aside id="calendar" class="calendar" aria-label="截止日历" hidden></aside>
+      <aside id="calendar" class="calendar" aria-label="任务日历" hidden></aside>
     </div>
     <footer class="statusbar"><span id="task-count">正在加载…</span><div id="toast" role="status" aria-live="polite"></div><button id="undo" class="text-button" hidden>撤销</button><span id="save-status" class="save-status">本地保存</span></footer>
   </div>
@@ -86,7 +109,8 @@
         <div class="field-row"><label class="field"><span>计划哪天做 <small>不会改变截止时间</small></span><input id="task-planned" type="date"></label><label class="field"><span>预计耗时（分钟） <small>0 表示未估时</small></span><input id="task-estimate" type="number" min="0" max="1440" step="1" value="0"></label></div>
         <label class="check-field"><input type="checkbox" id="task-inbox"><span>先放入收集箱，暂不安排</span></label>
         <p id="auto-hint" class="inline-hint" hidden>距截止不超过 48 小时，显示在「马上做」。改期后会重新判断。</p>
-        <label class="field"><span>重复 <small>完成后生成下一次，跳过已过去的日期</small></span><select id="task-repeat"><option value="none">不重复</option><option value="daily">每天</option><option value="weekdays">每个工作日（周一至周五）</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
+        <label class="field"><span>重复 <small>完成后生成下一次，跳过已过去的日期</small></span><select id="task-repeat"><option value="none">不重复</option><option value="daily">每天</option><option value="weekdays">每个工作日（周一至周五）</option><option value="interval">每隔几天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
+        <label class="field repeat-every-field" id="repeat-every-field" hidden><span>间隔天数 <small>2–30 天，如隔天运动填 2</small></span><input id="task-repeat-every" type="number" min="2" max="30" step="1" value="2"></label>
         <details class="checklist-editor"><summary>子清单 <span id="checklist-progress"></span></summary><label class="field"><span>每行一个步骤，最多 30 项</span><textarea id="task-checklist" rows="3" placeholder="整理资料&#10;写初稿&#10;检查并发送"></textarea></label><div id="checklist-items"></div></details>
         <label class="field"><span>备注 <small>可选</small></span><textarea name="notes" id="task-notes" rows="3" maxlength="5000" placeholder="记下下一步，或需要留意的事"></textarea></label>
         <section id="attachment-drop" aria-label="关联文件">
@@ -111,7 +135,7 @@
     <div class="dialog-heading"><span id="settings-title">设置与备份</span><button data-close="settings-dialog" aria-label="关闭设置"><svg class="icon"><use href="#i-close"/></svg></button></div>
     <div class="settings-body">
       <section><label class="setting-row"><span>语言 / Language <small>立即切换，自动记住选择</small></span><select data-setting="language" aria-label="语言 / Language" data-i18n-skip><option value="zh-CN">简体中文</option><option value="en">English</option></select></label></section>
-      <section><h2>面板</h2><label class="setting-row"><span>桌面融合 <small>弱化边框、阴影和底色</small></span><input type="checkbox" data-setting="desktopBlend"></label><label class="setting-row"><span>自动隐藏侧栏图标 <small>鼠标移到侧栏时显示，移开后隐藏</small></span><input type="checkbox" data-setting="quietControls"></label><label class="setting-row"><span>外观</span><select data-setting="theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+      <section><h2>面板</h2><label class="setting-row"><span>桌面融合 <small>弱化边框、阴影和底色</small></span><input type="checkbox" data-setting="desktopBlend"></label><label class="setting-row"><span>自动隐藏侧栏图标 <small>鼠标移到侧栏时显示，移开后隐藏</small></span><input type="checkbox" data-setting="quietControls"></label><label class="setting-row"><span>外观</span><select data-setting="theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label class="setting-row"><span>主题色 <small>成套配色，深浅两用，和桌面壁纸拉开区分</small></span><select data-setting="palette"><option value="ink">墨绿（默认）</option><option value="paper">暖纸</option><option value="graphite">石墨</option><option value="ocean">海雾</option><option value="plum">暮紫</option></select></label>
       <label class="setting-row"><span>窗口大小</span><select data-setting="windowSize"><option value="compact">紧凑 · 760 × 540</option><option value="normal">标准 · 960 × 640</option><option value="large">宽敞 · 1180 × 760</option></select></label>
       <label class="setting-row"><span>固定位置 <small>禁止拖动窗口，仍可操作任务和拖入文件</small></span><input type="checkbox" data-setting="positionFixed"></label>
       <label class="setting-row"><span>停靠位置</span><select data-setting="windowPosition"><option value="top-right">右上角</option><option value="manual">手动位置</option></select></label>
@@ -134,6 +158,7 @@
   <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title"><div class="confirm-body"><h2 id="confirm-title"></h2><p id="confirm-detail"></p><div id="confirm-actions"></div></div></dialog>
   <script src="../i18n.js"></script>
   <script src="time.js"></script>
+  <script src="pomodoro.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -81,6 +81,14 @@ module.exports=async function checkWindow(runtime,js,call){
    } else if(process.platform==='win32' || process.platform==='darwin') {
     const layer=require('../src/native/build/Release/window_layer.node');
     assert.equal(layer.isBelow(win.getNativeWindowHandle(),covering.getNativeWindowHandle()),true);
+    if(process.platform==='win32') {
+     // Regression: the panel was pinned with HWND_BOTTOM, so a raised desktop
+     // surface (Program Manager/WorkerW) could cover it with no way back.
+     assert.equal(layer.anchored(win.getNativeWindowHandle()),true,'panel stays above the desktop surface');
+     assert.equal(layer.settle(win.getNativeWindowHandle()),true);
+     assert.equal(layer.anchored(win.getNativeWindowHandle()),true,'settle re-anchors above the desktop surface');
+     assert.equal(layer.isBelow(win.getNativeWindowHandle(),covering.getNativeWindowHandle()),true,'settle keeps the panel below working applications');
+    }
    }
   };
   checkLayer();
@@ -114,6 +122,7 @@ module.exports=async function checkWindow(runtime,js,call){
   await call('window:compact',{enabled:true});win.focus();await sleep(150);checkLayer();
   await call('window:compact',{enabled:false});
   win.hide();runtime.getTray().emit('click');await sleep(150);assert.equal(win.isVisible(),true);checkLayer();
+  if(process.platform==='win32') { runtime.recoverPanel();await sleep(200);assert.equal(win.isVisible(),true);checkLayer(); }
  } finally { covering.destroy();desktop?.destroy(); }
 
  await call('settings',{language:'zh-CN',desktopInset:0,transparency:65});

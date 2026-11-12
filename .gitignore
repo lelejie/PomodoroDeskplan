@@ -11,3 +11,5 @@ test-artifacts/
 .env*
 
 src/native/build/
+
+data/

@@ -21,8 +21,22 @@ if (process.platform === 'linux') {
 if (process.platform === 'win32') app.setAppUserModelId('io.rixu');
 // This panel has no GPU-dependent content. Software rendering also works on remote Linux desktops.
 if (process.platform === 'linux' || (process.platform === 'darwin' && process.arch === 'x64')) app.disableHardwareAcceleration();
+// The planner panel is deliberately kept at the bottom of the window stack, so
+// Windows reports it as occluded whenever an ordinary app covers it. Chromium
+// then treats the renderer as hidden and throttles its timers, which used to
+// freeze the detached Pomodoro clock. Keep occluded windows running normally.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+// Portable/source builds keep all profile data (tasks, backups, localStorage,
+// caches) inside the project folder. Packaged installs keep the shared per-user
+// directory used by earlier releases.
 const dataDirectory = process.env.RIXU_DATA_DIR || process.env.FOURFOLD_DATA_DIR;
 if (dataDirectory) app.setPath('userData', path.resolve(dataDirectory));
+else if (!app.isPackaged) {
+  const portableData = path.join(__dirname, '..', 'data');
+  fs.mkdirSync(portableData, { recursive: true });
+  app.setPath('userData', portableData);
+}
 const isTest = process.env.RIXU_TEST === '1' || process.env.FOURFOLD_TEST === '1';
 const { UpdateDownload } = require('./update-download.cjs');
 const { requestAsset } = require('./update-network.cjs');
@@ -31,24 +45,74 @@ const { UpdateChecker } = require('./updates.cjs');
 const { latestReleaseURL } = require('./github-latest.cjs');
 const { panelBounds, sameBounds } = require('./window-layout.cjs');
 const indexFile = path.join(__dirname, 'renderer', 'index.html');
+const pomodoroWindowFile = path.join(__dirname, 'renderer', 'pomodoro-window.html');
 let updater, downloader, updateTarget, installHook, updateTimer, windowDrag;
 const updateState = () => ({ ...updater?.snapshot(), download: downloader?.snapshot(), installReason: updateTarget?.reason || '' });
 let quickWin, quickRegistered = false, registeredAccelerator = null, normalBounds, fixedBounds;
-let win, tray, store, quitting = false, timer, lastCheck = Date.now(), lastLevels = new Map(), moveTimer;
+let pomoWin, pomodoroSnapshot = null;
+const POMODORO_MINI = { width: 128, height: 62 }, POMODORO_NORMAL = { width: 236, height: 190 };
+// The detached timer floats above everything while a phase runs (or when
+// pinned). 'screen-saver' level keeps it above the taskbar and fullscreen apps.
+function applyPomodoroWindowPrefs(snapshot) {
+  if (!pomoWin || pomoWin.isDestroyed()) return;
+  const onTop = !!(snapshot && (snapshot.pin || (snapshot.running && snapshot.autoTop !== false)));
+  if (pomoWin.isAlwaysOnTop() !== onTop || pomoWin.alwaysOnTopLevel !== (onTop ? 'screen-saver' : 'floating')) {
+    pomoWin.setAlwaysOnTop(onTop, onTop ? 'screen-saver' : 'floating');
+    pomoWin.alwaysOnTopLevel = onTop ? 'screen-saver' : 'floating';
+  }
+  const size = snapshot && snapshot.mini ? POMODORO_MINI : POMODORO_NORMAL;
+  if (pomoWin.miniApplied !== !!snapshot?.mini) {
+    pomoWin.miniApplied = !!snapshot?.mini;
+    const bounds = pomoWin.getBounds();
+    pomoWin.setMinimumSize(size.width, size.height);
+    pomoWin.setBounds({ ...bounds, ...size });
+  }
+}
+function syncPomodoroSnapshot(snapshot) {
+  pomodoroSnapshot = snapshot;
+  if (!snapshot || typeof snapshot !== 'object') return;
+  applyPomodoroWindowPrefs(snapshot);
+  if (pomoWin && !pomoWin.isDestroyed()) pomoWin.webContents.send('fourfold:pomodoro-state', snapshot);
+}
+let win, tray, store, quitting = false, timer, lastCheck = Date.now(), lastLevels = new Map(), moveTimer, layer;
 
 function viewState() {
   return {
     ...store.snapshot(), updates: updateState(), canUndo: store.history.length > 0, recoveryNotice: tr(store.recoveryNotice),
     native: { panelVisible: !!win?.isVisible(), panelActive: !!win?.isFocused(), platform: process.platform, notificationsSupported: Notification.isSupported(), trayAvailable: !!tray,
       quickShortcutRegistered: quickRegistered, version: require('../package.json').version,
-      autoStartSupported: process.platform !== 'linux' || app.isPackaged },
+      autoStartSupported: app.isPackaged },
   };
 }
 function broadcastUpdates() { if (win && !win.isDestroyed()) win.webContents.send('fourfold:updates', updateState()); }
 function broadcast() { if (win && !win.isDestroyed()) win.webContents.send('fourfold:state', viewState()); }
 function message(text) { if (win && !win.isDestroyed()) win.webContents.send('fourfold:message', text); }
-function showWindow(taskId) { if (taskId && store.state.settings.compactMode) { store.saveSettings({ compactMode: false }); applySettings(); broadcast(); } if (!win || win.isDestroyed()) return; win.show(); if (win.isMinimized()) win.restore(); win.focus(); if (taskId) win.webContents.send('fourfold:locate', taskId); }
-function showInitialWindow() { if (win && !win.isDestroyed()) win.showInactive(); }
+// The panel lives on the desktop layer: above the desktop surface (Program
+// Manager, wallpaper and icon hosts) and below every ordinary application.
+// Windows, Explorer and wallpaper hosts can reorder that band, so tray actions
+// and background checks re-assert the placement. A transparent window that lost
+// its surface while fully covered is refreshed by re-showing and repainting.
+function settlePanel(repaint) {
+  if (!win || win.isDestroyed()) return;
+  try { layer?.settle?.(win.getNativeWindowHandle()); } catch (error) { console.warn('Desktop layer:', error.message); }
+  if (repaint && win.isVisible()) { try { win.webContents.invalidate(); } catch {} }
+}
+function showWindow(taskId) {
+  if (taskId && store.state.settings.compactMode) { store.saveSettings({ compactMode: false }); applySettings(); broadcast(); }
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show(); win.focus(); settlePanel(true);
+  if (taskId) win.webContents.send('fourfold:locate', taskId);
+}
+// "Show Rixu" and "Restore visibility" must work even when Windows still reports
+// the panel as visible while it sits behind the desktop or paints nothing.
+function recoverPanel() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  if (win.isVisible()) win.hide();
+  win.showInactive(); settlePanel(true); win.focus();
+}
+function showInitialWindow() { if (win && !win.isDestroyed()) { win.showInactive(); settlePanel(false); } }
 function reportError(error) { console.error(error); message(tr(error.message) || tr('操作未完成，请重试')); }
 function taskFile(taskId, fileId) {
   const task = store.state.tasks.find(t => t.id === taskId), file = task?.files.find(f => f.id === fileId);
@@ -73,6 +137,7 @@ function positionWindow() {
 function applySettings() {
   setLanguage(store.state.settings.language);
   win.setTitle(tr('日序'));
+  if (pomoWin && !pomoWin.isDestroyed()) pomoWin.setTitle(tr('日序 · 番茄钟'));
   if (quickWin && !quickWin.isDestroyed()) {
     quickWin.setTitle(tr('日序 · 随手记'));
     quickWin.webContents.send('fourfold:language', store.state.settings.language);
@@ -114,8 +179,9 @@ function updateTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: tr('显示日序'), click: () => showWindow() },
     { label: tr('随手记'), click: () => showQuickCapture() },
+    { label: tr('番茄钟'), click: () => { showWindow(); win.webContents.send('fourfold:command', 'pomodoro'); } },
     { label: tr('设置与备份'), click: () => { showWindow(); win.webContents.send('fourfold:command', 'settings'); } },
-    { label: tr('恢复可见'), click: () => { store.saveSettings({ transparency: 35, textTransparency: 0, compactMode: false }); applySettings(); broadcast(); showWindow(); } },
+    { label: tr('恢复可见'), click: () => { store.saveSettings({ transparency: 35, textTransparency: 0, compactMode: false }); applySettings(); broadcast(); recoverPanel(); } },
     { label: tr('固定位置'), type: 'checkbox', checked: store.state.settings.positionFixed, click: item => { try { store.saveSettings({ positionFixed: item.checked, windowPosition: 'manual' }); applySettings(); broadcast(); } catch (e) { reportError(e); } } },
     { type: 'separator' }, { label: tr('退出日序'), click: () => { quitting = true; app.quit(); } },
   ]));
@@ -148,7 +214,7 @@ function clockCheck() {
       }
     }
     lastCheck = now;
-    if (win && !win.isDestroyed()) win.webContents.send('fourfold:tick', now);
+    if (win && !win.isDestroyed()) { settlePanel(false); win.webContents.send('fourfold:tick', now); }
   } catch (e) { reportError(e); }
 }
 
@@ -180,11 +246,38 @@ function registerQuickShortcut() {
   registeredAccelerator = accelerator;
   quickRegistered = accelerator ? globalShortcut.register(accelerator, showQuickCapture) : false;
 }
+async function showPomodoroWindow() {
+  if (pomoWin && !pomoWin.isDestroyed()) {
+    pomoWin.show(); pomoWin.focus();
+    if (pomodoroSnapshot) { applyPomodoroWindowPrefs(pomodoroSnapshot); pomoWin.webContents.send('fourfold:pomodoro-state', pomodoroSnapshot); }
+    return;
+  }
+  const bounds = win.getBounds(), area = screen.getDisplayMatching(bounds).workArea;
+  const { width, height } = POMODORO_NORMAL;
+  let x = bounds.x + bounds.width + 14;
+  if (x + width > area.x + area.width) x = bounds.x - width - 14;
+  x = Math.max(area.x + 8, Math.min(x, area.x + area.width - width - 8));
+  const y = Math.max(area.y + 8, Math.min(bounds.y + 18, area.y + area.height - height - 8));
+  pomoWin = new BrowserWindow({ x, y, width: POMODORO_NORMAL.width, height: POMODORO_NORMAL.height, frame: false, transparent: true, backgroundColor: '#00000000',
+    resizable: false, maximizable: false, minimizable: false, fullscreenable: false, skipTaskbar: true, show: false,
+    hasShadow: true, title: tr('日序 · 番茄钟'), icon: path.join(__dirname, 'assets', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false } });
+  pomoWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  pomoWin.webContents.on('will-navigate', event => event.preventDefault());
+  pomoWin.on('closed', () => {
+    pomoWin = null;
+    if (win && !win.isDestroyed()) win.webContents.send('fourfold:pomodoro-window', false);
+  });
+  await pomoWin.loadFile(pomodoroWindowFile);
+  pomoWin.show();
+  if (pomodoroSnapshot) { applyPomodoroWindowPrefs(pomodoroSnapshot); pomoWin.webContents.send('fourfold:pomodoro-state', pomodoroSnapshot); }
+  if (win && !win.isDestroyed()) win.webContents.send('fourfold:pomodoro-window', true);
+}
 async function showQuickCapture() {
   if (!quickWin || quickWin.isDestroyed()) {
     quickWin = new BrowserWindow({ width: 540, height: 190, frame: false, resizable: false, alwaysOnTop: false, skipTaskbar: true, show: false,
       title: tr('日序 · 随手记'), backgroundColor: '#f5f7f4', icon: path.join(__dirname, 'assets', 'icon.png'),
-      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false } });
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false } });
     if (process.platform === 'linux') require('./native/build/Release/window_layer.node').attach(quickWin.getNativeWindowHandle(), false);
     quickWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     quickWin.webContents.on('will-navigate', e => e.preventDefault());
@@ -219,6 +312,24 @@ function registerIPC() {
     'quick:show': async () => showQuickCapture(),
     'quick:hide': async () => quickWin?.hide(),
     'quick:preferences': async () => ({ language: store.state.settings.language }),
+    'pomodoro:window': async ({ open } = {}) => { if (open) await showPomodoroWindow(); else pomoWin?.close(); },
+    'pomodoro:sync': async ({ snapshot } = {}) => syncPomodoroSnapshot(snapshot),
+    'pomodoro:command': async ({ command, minutes } = {}) => {
+      if (!['toggle', 'reset', 'skip', 'complete', 'close', 'pin', 'mini', 'custom'].includes(command)) throw new Error(tr('不支持此操作'));
+      if (command === 'close') { pomoWin?.close(); return; }
+      if (command === 'custom') {
+        const value = Math.round(Number(minutes));
+        if (!Number.isFinite(value) || value < 1 || value > 180) throw new Error(tr('请填写 1–180 分钟'));
+        if (win && !win.isDestroyed()) win.webContents.send('fourfold:pomodoro-command', { command, minutes: value });
+        return;
+      }
+      if (win && !win.isDestroyed()) win.webContents.send('fourfold:pomodoro-command', command);
+    },
+    'pomodoro:notify': async ({ title, body } = {}) => {
+      if (typeof title !== 'string' || typeof body !== 'string') return;
+      if (Notification.isSupported()) new Notification({ title: title.slice(0, 200), body: body.slice(0, 500), icon: path.join(__dirname, 'assets', 'icon.png') }).show();
+      if (win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true);
+    },
     'quick:create': async ({ title }) => { const id = store.create({ title, inbox: true, level: 3 }); broadcast(); quickWin?.hide(); message(tr('已记入收集箱')); return id; },
     create: async input => { const files = input.paths?.length ? inspectPaths(input.paths) : []; const id = store.create(input, files); broadcast(); return id; },
     update: async ({ id, patch }) => { store.update(id, patch); broadcast(); },
@@ -279,7 +390,8 @@ function registerIPC() {
   for (const [name, handler] of Object.entries(handlers)) ipcMain.handle(`fourfold:${name}`, async (event, payload) => {
     const fromMain = event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame && isTrustedFileURL(event.senderFrame.url, indexFile);
     const fromQuick = quickWin && !quickWin.isDestroyed() && event.sender === quickWin.webContents && event.senderFrame === quickWin.webContents.mainFrame && isTrustedFileURL(event.senderFrame.url, path.join(__dirname, 'renderer', 'quick.html'));
-    if (!fromMain && !(fromQuick && ['quick:create', 'quick:hide', 'quick:preferences'].includes(name))) throw new Error(tr('请求来源无效'));
+    const fromPomodoro = pomoWin && !pomoWin.isDestroyed() && event.sender === pomoWin.webContents && event.senderFrame === pomoWin.webContents.mainFrame && isTrustedFileURL(event.senderFrame.url, pomodoroWindowFile);
+    if (!fromMain && !(fromQuick && ['quick:create', 'quick:hide', 'quick:preferences'].includes(name)) && !(fromPomodoro && name === 'pomodoro:command')) throw new Error(tr('请求来源无效'));
     try { return { ok: true, value: await handler(payload) }; } catch (e) { return { ok: false, error: tr(e.message || '操作失败') }; }
   });
 }
@@ -327,8 +439,8 @@ async function start(options = {}) {
   win = new BrowserWindow({ ...bounds, show: false, frame: false, transparent: true, backgroundColor: '#00000000',
     skipTaskbar: true, resizable: false, maximizable: false, minimizable: false, fullscreenable: false, hasShadow: true,
     title: tr('日序'), icon: path.join(__dirname, 'assets', 'icon.png'),
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, webSecurity: true } });
-  const layer = require('./native/build/Release/window_layer.node');
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false, backgroundThrottling: false, webSecurity: true } });
+  layer = require('./native/build/Release/window_layer.node');
   layer.attach(win.getNativeWindowHandle());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
@@ -346,7 +458,7 @@ async function start(options = {}) {
     }
     menu.popup({ window: win });
   });
-  win.on('minimize', () => { if (!quitting) win.restore(); });
+  win.on('minimize', () => { if (!quitting) { win.restore(); settlePanel(true); } });
   win.on('focus', () => win.webContents.send('fourfold:active', true));
   win.on('blur', () => { windowDrag = null; win.webContents.send('fourfold:active', false); });
   win.on('will-move', event => { if (store.state.settings.positionFixed) event.preventDefault(); });
@@ -362,8 +474,8 @@ async function start(options = {}) {
     }, 500);
   });
   win.on('close', event => { if (!quitting) event.preventDefault(); });
-  screen.on('display-removed', positionWindow);
-  screen.on('display-metrics-changed', positionWindow);
+  screen.on('display-removed', () => { positionWindow(); settlePanel(false); });
+  screen.on('display-metrics-changed', () => { positionWindow(); settlePanel(false); });
   powerMonitor.on('resume', clockCheck);
   lastLevels = new Map(store.state.tasks.map(t => [t.id, effectiveLevel(t)]));
   timer = setInterval(clockCheck, 60_000);
@@ -376,7 +488,7 @@ async function start(options = {}) {
     }
   }
   if (!isTest) updateTimer = setTimeout(() => { if (store.state.settings.autoUpdates) updater.check(); }, 20000);
-  return { window: win, store, downloader, clockCheck, viewState, showQuickCapture, updater, panelMenu, getQuickWindow: () => quickWin, getTray: () => tray, showInitialWindow };
+  return { window: win, store, downloader, clockCheck, viewState, showQuickCapture, updater, panelMenu, getQuickWindow: () => quickWin, getTray: () => tray, showInitialWindow, recoverPanel };
 }
 
 app.on('will-quit', () => { if (app.isReady()) globalShortcut.unregisterAll(); });

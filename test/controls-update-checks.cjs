@@ -10,7 +10,7 @@ module.exports=async function(runtime,js,call,setResponse){
   win.close();await sleep(50);assert.equal(win.isDestroyed(),false,'only explicit Quit exits');
   const menu=runtime.panelMenu();assert.ok(menu.getMenuItemById('quit'));assert.ok(menu.getMenuItemById('position'));
   await call('window:compact',{enabled:true});
-  assert.deepEqual(await js('[...document.querySelectorAll(".tool-rail button")].filter(e=>e.getClientRects().length).map(e=>e.id)'),['new-task','compact-toggle']);
+  assert.deepEqual(await js('[...document.querySelectorAll(".tool-rail button")].filter(e=>e.getClientRects().length).map(e=>e.id)'),['new-task','compact-toggle','pomodoro-button']);
   if(process.platform==='linux') {
     await call('settings',{positionFixed:false,windowPosition:'manual'});const before=win.getBounds();
     await require('node:util').promisify(require('node:child_process').execFile)('python3',[require('node:path').join(__dirname,'x11-drag.py'),String(before.x+before.width-25),String(before.y+before.height-35),'-35','40']);await sleep(100);

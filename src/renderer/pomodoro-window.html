@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>日序 · 番茄钟</title>
+  <link rel="stylesheet" href="pomodoro-window.css">
+</head>
+<body>
+  <main id="pomodoro-window" aria-label="番茄钟">
+    <header><strong id="phase">专注</strong><span id="round">第 1 / 4 轮</span><button id="pin" class="icon-btn" aria-label="悬浮置顶" title="悬浮置顶"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3 8 0-1 7 4 4H5l4-4zM12 14v8"/></svg></button><button id="mini" class="icon-btn" aria-label="迷你模式" title="迷你模式"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button><button id="close" aria-label="关闭番茄钟窗口" title="关闭">×</button></header>
+    <div id="time" role="timer">25:00</div>
+    <div id="dots" aria-hidden="true"></div>
+    <div id="task" title="">还没有设为「正在做」的任务</div>
+    <div class="actions"><button id="toggle" class="primary">开始</button><button id="reset">重置</button><button id="skip">跳过</button><button id="complete" hidden>完成</button></div>
+    <div class="custom-row"><input id="custom" type="number" min="1" max="180" step="1" value="4" aria-label="自定义倒计时分钟数"><small id="custom-unit">分钟</small><button id="custom-start">倒计时</button></div>
+    <div id="status" role="status" aria-live="polite">今天已完成 0 个番茄钟</div>
+  </main>
+  <script src="../i18n.js"></script>
+  <script src="pomodoro-window.js"></script>
+</body>
+</html>
